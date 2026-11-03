@@ -3,3 +3,35 @@ __pycache__/
 *.pyc
 db.sqlite3
 .env
+
+# Python virtual environments
+venv/
+.venv/
+myphishing/
+
+# Python cache
+__pycache__/
+*.py[cod]
+*.log
+
+# Django
+db.sqlite3
+media/
+
+# Environment secrets
+.env
+.env.*
+
+# React / Node
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+
+# IDE
+.vscode/
+.idea/
+
+# Local training datasets
+/Phishing_URL_Dataset.csv
+/SpamEmail.csv

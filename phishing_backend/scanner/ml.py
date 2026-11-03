@@ -73,7 +73,8 @@ def scan_email(text):
 def scan_url(url):
     feats = url_features(url)
     df = pd.DataFrame([feats], columns=URL_FEATURE_ORDER)
-    prob = float(url_model.predict_proba(df)[0][1])
+    probabilities = url_model.predict_proba(df)[0]
+    prob = float(probabilities[list(url_model.classes_).index(0)])
 
     red_flags = []
     if feats['has_ip']:
