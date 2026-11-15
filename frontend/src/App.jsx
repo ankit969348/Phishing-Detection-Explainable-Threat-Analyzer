@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import {
   Activity, AlertTriangle, ArrowUpRight, BarChart3, Bell,
   CheckCircle2, ChevronRight, Clock3, FileText, Globe,
-  LayoutDashboard, LoaderCircle, Mail, Menu, Search,
+  LayoutDashboard, LoaderCircle, LogOut, Mail, Menu, Search, Lock,
   Shield, ShieldAlert, ShieldCheck, Trash2, X
 } from 'lucide-react'
 import {
@@ -11,15 +11,12 @@ import {
 } from 'recharts'
 import './App.css'
 
-const STORAGE_KEY = 'phishing-analyzer-history'
 
-const readHistory = () => {
-  try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')
-  } catch {
-    return []
-  }
-}
+
+
+
+
+
 
 const riskColor = (label = '') => {
   const value = label.toLowerCase()
@@ -122,12 +119,84 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
-  const [history, setHistory] = useState(readHistory)
+
+
+  const [history, setHistory] = useState([])
+  const [authPrompt, setAuthPrompt] = useState('')
+  const [showNotifications, setShowNotifications] = useState(false)
+
+
   const [mobileMenu, setMobileMenu] = useState(false)
 
+
+// Authentication states
+const [token, setToken] = useState(
+  () => localStorage.getItem('threatlens-token') || ''
+)
+const [user, setUser] = useState(null)
+const [authMode, setAuthMode] = useState('login')
+const [showAuth, setShowAuth] = useState(true)
+const [authLoading, setAuthLoading] = useState(false)
+const [authError, setAuthError] = useState('')
+const [authSuccess, setAuthSuccess] = useState('')
+
+const [authForm, setAuthForm] = useState({
+  username: '',
+  email: '',
+  password: ''
+})
+ // django api history
+
+
+const fetchDbHistory = async (authToken) => {
+    try {
+      const res = await fetch('/api/history/', {
+        headers: { Authorization: `Token ${authToken}` }
+      })
+      if (res.ok) {
+        const items = await res.json()
+        setHistory(items)
+      }
+    } catch (err) {
+      console.error('Failed to load history:', err)
+    }
+  }
+
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(history))
-  }, [history])
+    if (!token) {
+      setUser(null)
+      return
+    }
+
+    const verifySession = async () => {
+      try {
+        const response = await fetch('/api/auth/me/', {
+          headers: {
+            Authorization: `Token ${token}`
+          }
+        })
+
+        if (!response.ok) {
+          throw new Error('Session expired')
+        }
+
+        const data = await response.json()
+        setUser(data)
+        fetchDbHistory(token)
+
+      } catch (error) {
+        localStorage.removeItem('threatlens-token')
+        setToken('')
+        setUser(null)
+      }
+    }
+
+    verifySession()
+  }, [token])
+
+
+
+
 
   const totals = useMemo(() => {
     const counts = { phishing: 0, suspicious: 0, legitimate: 0 }
@@ -171,6 +240,105 @@ function App() {
     return days
   }, [history])
 
+
+
+
+
+const saveSession = (data) => {
+  localStorage.setItem('threatlens-token', data.token)
+  setToken(data.token)
+  setUser(data.user)
+  setShowAuth(false)
+  setAuthError('')
+  setAuthSuccess(data.message || 'Authentication successful!')
+  setAuthForm({
+    username: '',
+    email: '',
+    password: ''
+  })
+}
+
+const handleAuth = async (event) => {
+  event.preventDefault()
+
+  setAuthLoading(true)
+  setAuthError('')
+  setAuthSuccess('')
+
+  const endpoint =
+    authMode === 'signup'
+      ? '/api/auth/signup/'
+      : '/api/auth/login/'
+
+  const payload =
+    authMode === 'signup'
+      ? authForm
+      : {
+          username: authForm.username,
+          password: authForm.password
+        }
+
+  try {
+    const response = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload)
+    })
+
+    const data = await response.json()
+
+    if (!response.ok) {
+      throw new Error(
+        Array.isArray(data.error)
+          ? data.error.join(' ')
+          : data.error || 'Authentication failed.'
+      )
+    }
+
+    if (authMode === 'signup') {
+      setAuthMode('login')
+      setAuthSuccess(data.message || 'Account created successfully! Please sign in.')
+      setAuthForm(prev => ({ ...prev, password: '' }))
+    } else {
+      saveSession(data)
+    }
+
+  } catch (error) {
+    setAuthError(error.message)
+  } finally {
+    setAuthLoading(false)
+  }
+}
+
+const handleLogout = async () => {
+  try {
+    if (token) {
+      await fetch('/api/auth/logout/', {
+        method: 'POST',
+        headers: {
+          Authorization: `Token ${token}`
+        }
+      })
+    }
+  } catch (error) {
+    console.error('Logout request failed:', error)
+  } finally {
+      localStorage.removeItem('threatlens-token')
+      setToken('')
+      setUser(null)
+      setHistory([])
+      setResult(null)
+      setPage('Overview')
+      setAuthSuccess('')
+    }
+
+
+
+
+
+
   const runScan = async (event) => {
     event.preventDefault()
     setError('')
@@ -196,9 +364,17 @@ function App() {
     try {
       const response = await fetch('/api/scan/', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      })
+
+
+       headers: {
+    'Content-Type': 'application/json',
+    ...(token ? { Authorization: `Token ${token}` } : {})
+  },
+  body: JSON.stringify(payload)
+})
+
+
+
       const data = await response.json()
 
       if (!response.ok) {
@@ -223,8 +399,21 @@ function App() {
     }
   }
 
-  const clearHistory = () => {
-    if (window.confirm('Delete all saved scan history from this browser?')) {
+
+  const clearHistory = async () => {
+    if (!user) {
+      setAuthPrompt('Sign in or create an account to manage your scan history.')
+      return
+    }
+    if (window.confirm('Delete all saved scan history from your account?')) {
+      try {
+        await fetch('/api/history/', {
+          method: 'DELETE',
+          headers: { Authorization: `Token ${token}` }
+        })
+      } catch (err) {
+        console.error(err)
+      }
       setHistory([])
       setResult(null)
     }
@@ -239,10 +428,17 @@ function App() {
   ]
 
   const goTo = (name) => {
+    if (!user && (name === 'Scan History' || name === 'Reports')) {
+      setAuthPrompt(`Create a free account or sign in to access ${name} and export PDF security reports.`)
+      setMobileMenu(false)
+      return
+    }
     setPage(name)
     setMobileMenu(false)
     setError('')
   }
+
+
 
   const formatDate = (value) => new Date(value).toLocaleString()
 
@@ -329,6 +525,21 @@ function App() {
     <span>70–100: Phishing</span>
   </div>
 </div>
+
+   
+    <button
+              className="button secondary no-print"
+              onClick={() => {
+                if (!user) {
+                  setAuthPrompt('Sign in or create an account to export and print official PDF reports.')
+                  return
+                }
+                window.print()
+              }}
+            >
+              <FileText size={16} /> Export PDF Report
+            </button>
+
 
         
        
@@ -618,6 +829,27 @@ function App() {
     </>
   )
 
+
+
+      if (showAuth) {
+  return (
+    <AuthScreen
+      authMode={authMode}
+      setAuthMode={setAuthMode}
+      authForm={authForm}
+      setAuthForm={setAuthForm}
+      handleAuth={handleAuth}
+      authLoading={authLoading}
+      authError={authError}
+      authSuccess={authSuccess}
+      onGuest={() => setShowAuth(false)}
+    />
+  )
+}
+     
+
+
+
   return (
     <div className="app-shell">
       <aside className={`sidebar ${mobileMenu ? 'sidebar-open' : ''}`}>
@@ -643,10 +875,40 @@ function App() {
             <span className="system-dot" />
             <div><strong>Local analyzer</strong><small>Development environment</small></div>
           </div>
-          <div className="profile-row">
-            <div className="avatar">PS</div>
-            <div><strong>Project workspace</strong><small>Phishing Analyzer</small></div>
-          </div>
+          
+
+
+               <div className="profile-row">
+  <div className="avatar">
+    {user ? user.username?.charAt(0).toUpperCase() : 'G'}
+  </div>
+
+  <div className="profile-info">
+    <strong>{user ? user.username : 'Guest Workspace'}</strong>
+    <small>{user ? user.email : 'Guest Access'}</small>
+  </div>
+</div>
+
+{user ? (
+  <button
+    className="sidebar-auth-button"
+    onClick={handleLogout}
+  >
+    <LogOut size={16} />
+    Logout
+  </button>
+) : (
+  <button
+    className="sidebar-auth-button"
+    onClick={() => setShowAuth(true)}
+  >
+    <ShieldCheck size={16} />
+    Sign In / Create Account
+  </button>
+)}
+
+
+
         </div>
       </aside>
 
@@ -658,7 +920,57 @@ function App() {
           <div className="breadcrumb">Workspace <ChevronRight size={14} /> <strong>{page}</strong></div>
           <div className="topbar-right">
             <span className="top-status"><span /> System ready</span>
-            <div className="top-icon"><Bell size={18} /></div>
+           
+
+
+<div className="notif-wrapper">
+                <button
+                  type="button"
+                  className="top-icon-btn"
+                  onClick={() => setShowNotifications(!showNotifications)}
+                  aria-label="Security Alerts"
+                >
+                  <Bell size={18} />
+                  {totals.phishing + totals.suspicious > 0 && (
+                    <span className="notif-badge">{totals.phishing + totals.suspicious}</span>
+                  )}
+                </button>
+                {showNotifications && (
+                  <div className="notif-dropdown">
+                    <div className="notif-header">
+                      <strong>Security Alerts</strong>
+                      <span>{totals.phishing + totals.suspicious} flagged</span>
+                    </div>
+                    {history
+                      .filter(h =>
+                        Object.values(h.result || {}).some(s =>
+                          ['phishing', 'suspicious'].includes((s.label || '').toLowerCase())
+                        )
+                      )
+                      .slice(0, 4)
+                      .map(item => (
+                        <div
+                          key={item.id}
+                          className="notif-item"
+                          onClick={() => {
+                            setResult(item)
+                            setPage('Scanner')
+                            setShowNotifications(false)
+                          }}
+                        >
+                          <strong>{item.type.toUpperCase()} Threat Flagged</strong>
+                          <small>{formatDate(item.timestamp)}</small>
+                        </div>
+                      ))}
+                    {totals.phishing + totals.suspicious === 0 && (
+                      <p className="notif-empty">No phishing or suspicious alerts yet.</p>
+                    )}
+                  </div>
+                )}
+              </div>
+
+
+
           </div>
         </header>
 
@@ -674,8 +986,50 @@ function App() {
           </footer>
         </div>
       </main>
+
+      
+        {authPrompt && (
+          <div className="modal-backdrop" onClick={() => setAuthPrompt('')}>
+            <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+              <div className="modal-icon"><Lock size={24} /></div>
+              <h3>Registered Feature</h3>
+              <p>{authPrompt}</p>
+              <div className="modal-actions">
+                <button
+                  className="button primary"
+                  onClick={() => {
+                    setAuthPrompt('')
+                    setAuthMode('signup')
+                    setShowAuth(true)
+                  }}
+                >
+                  Create Account
+                </button>
+                <button
+                  className="button secondary"
+                  onClick={() => {
+                    setAuthPrompt('')
+                    setAuthMode('login')
+                    setShowAuth(true)
+                  }}
+                >
+                  Sign In
+                </button>
+              </div>
+              <button className="modal-close-text" onClick={() => setAuthPrompt('')}>
+                Continue as Guest
+              </button>
+            </div>
+          </div>
+        )}
+      
+     
+
+
     </div>
   )
+}
+
 }
 
 function StatCard({ icon: Icon, title, value, note, tone }) {
@@ -736,5 +1090,228 @@ function InfoCard({ icon: Icon, title, text }) {
     </div>
   )
 }
+
+
+
+  function AuthScreen({
+  authMode,
+  setAuthMode,
+  authForm,
+  setAuthForm,
+  handleAuth,
+  authLoading,
+  authError,
+  authSuccess,
+  onGuest
+}) {
+  const isSignup = authMode === 'signup'
+
+  return (
+    <div className="auth-page">
+      <div className="auth-card">
+
+        <div className="auth-brand">
+          <div className="auth-logo">
+            <ShieldCheck size={27} />
+          </div>
+          <div>
+            <h2>ThreatLens</h2>
+            <span>SECURITY ANALYZER</span>
+          </div>
+        </div>
+
+        <div className="auth-heading">
+          <span className="eyebrow">SECURE WORKSPACE</span>
+          <h1>{isSignup ? 'Create your account' : 'Welcome back'}</h1>
+          <p>
+            {isSignup
+              ? 'Create an account to manage your security scans.'
+              : 'Sign in to access your security workspace.'}
+          </p>
+        </div>
+
+        <div className="auth-tabs">
+          <button
+            type="button"
+            className={!isSignup ? 'active' : ''}
+            onClick={() => setAuthMode('login')}
+          >
+            Login
+          </button>
+
+          <button
+            type="button"
+            className={isSignup ? 'active' : ''}
+            onClick={() => setAuthMode('signup')}
+          >
+            Sign Up
+          </button>
+        </div>
+
+        <form onSubmit={handleAuth} className="auth-form">
+
+          <label className="form-field">
+            <span>Username</span>
+            <input
+              type="text"
+              value={authForm.username}
+              onChange={e =>
+                setAuthForm({
+                  ...authForm,
+                  username: e.target.value
+                })
+              }
+              placeholder="Enter username"
+              required
+            />
+          </label>
+
+          {isSignup && (
+            <label className="form-field">
+              <span>Email address</span>
+              <input
+                type="email"
+                value={authForm.email}
+                onChange={e =>
+                  setAuthForm({
+                    ...authForm,
+                    email: e.target.value
+                  })
+                }
+                placeholder="Enter email address"
+                required
+              />
+            </label>
+          )}
+
+          <label className="form-field">
+            <span>Password</span>
+            <input
+              type="password"
+              value={authForm.password}
+              onChange={e =>
+                setAuthForm({
+                  ...authForm,
+                  password: e.target.value
+                })
+              }
+              placeholder="Enter password"
+              required
+            />
+          </label>
+
+          {authError && (
+            <div className="error-message">
+              <AlertTriangle size={16} />
+              {authError}
+            </div>
+          )}
+
+          {authSuccess && (
+            <div className="auth-success">
+              <CheckCircle2 size={16} />
+              {authSuccess}
+            </div>
+          )}
+
+          <button
+            className="button primary auth-submit"
+            type="submit"
+            disabled={authLoading}
+          >
+            {authLoading
+              ? 'Please wait...'
+              : isSignup
+                ? 'Create Account'
+                : 'Sign In'}
+          </button>
+
+        </form>
+
+        {!isSignup && (
+          <button
+            type="button"
+            className="auth-link"
+            onClick={() => alert('Forgot Password will be connected in the next step.')}
+          >
+            Forgot password?
+          </button>
+        )}
+
+        <div className="auth-divider">
+          <span>OR</span>
+        </div>
+
+        <button
+          type="button"
+          className="button secondary auth-guest"
+          onClick={onGuest}
+        >
+          Continue as Guest
+        </button>
+
+        <p className="auth-footer">
+          ThreatLens · Phishing Detection & Explainable Threat Analyzer
+        </p>
+
+      </div>
+    </div>
+  )
+}
+
+
+
+
+
+
+function AccountAccess({ user, setShowAuth, handleLogout }) {
+  return (
+    <div className="account-access">
+      {user ? (
+        <>
+          <div className="account-user">
+            <div className="account-avatar">
+              {user.username?.charAt(0).toUpperCase()}
+            </div>
+            <div>
+              <strong>{user.username}</strong>
+              <span>{user.email || 'ThreatLens User'}</span>
+            </div>
+          </div>
+
+          <button
+            className="account-button logout-button"
+            onClick={handleLogout}
+          >
+            Logout
+          </button>
+        </>
+      ) : (
+        <>
+          <div className="account-user">
+            <div className="account-avatar">G</div>
+            <div>
+              <strong>Guest Workspace</strong>
+              <span>You're using guest access</span>
+            </div>
+          </div>
+
+          <button
+            className="account-button"
+            onClick={() => setShowAuth(true)}
+          >
+            Sign In / Create Account
+          </button>
+        </>
+      )}
+    </div>
+  )
+}
+
+
+
+
+
+
 
 export default App
