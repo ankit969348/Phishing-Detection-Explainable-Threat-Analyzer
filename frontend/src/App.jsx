@@ -1125,24 +1125,58 @@ function InfoCard({ icon: Icon, title, text }) {
   const [resetOtp, setResetOtp] = useState('')
   const [resetNewPassword, setResetNewPassword] = useState('')
   const [otpSent, setOtpSent] = useState(false)
+  const [resendTimer, setResendTimer] = useState(0)
   const [resetBusy, setResetBusy] = useState(false)
   const [resetErr, setResetErr] = useState('')
   const [resetMsg, setResetMsg] = useState('')
+  const [localError, setLocalError] = useState('')
+  const [localSuccess, setLocalSuccess] = useState('')
 
   const apiBase = typeof API_BASE_URL !== 'undefined' ? API_BASE_URL : 'http://127.0.0.1:8000/api'
 
-  const handleSendOtp = async (e) => {
+  useEffect(() => {
+    if (resendTimer <= 0) return
+    const interval = setInterval(() => {
+      setResendTimer(prev => (prev > 0 ? prev - 1 : 0))
+    }, 1000)
+    return () => clearInterval(interval)
+  }, [resendTimer])
+
+  const onValidatedAuthSubmit = (e) => {
     e.preventDefault()
+    setLocalError('')
+    setLocalSuccess('')
+    if (!authForm.username.trim()) {
+      setLocalError('Please enter your username.')
+      return
+    }
+    if (isSignup && !authForm.email.trim()) {
+      setLocalError('Please enter your email address.')
+      return
+    }
+    if (!authForm.password) {
+      setLocalError('Please enter your password.')
+      return
+    }
+    handleAuth(e)
+  }
+
+  const requestOtpCode = async () => {
+    if (!resetEmail.trim()) {
+      setResetErr('Please enter your registered email address.')
+      return
+    }
     setResetBusy(true); setResetErr(''); setResetMsg('')
     try {
       const res = await fetch(`${apiBase}/auth/send-reset-otp/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: resetEmail })
+        body: JSON.stringify({ email: resetEmail.trim() })
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to send OTP')
       setOtpSent(true)
+      setResendTimer(60)
       setResetMsg(data.message || '6-digit OTP sent to your email.')
     } catch (err) {
       setResetErr(err.message)
@@ -1151,16 +1185,30 @@ function InfoCard({ icon: Icon, title, text }) {
     }
   }
 
+  const handleSendOtp = (e) => {
+    e.preventDefault()
+    requestOtpCode()
+  }
+
   const handleConfirmReset = async (e) => {
     e.preventDefault()
-    setResetBusy(true); setResetErr(''); setResetMsg('')
+    setResetErr(''); setResetMsg('')
+    if (!resetOtp.trim() || resetOtp.trim().length < 6) {
+      setResetErr('Please enter the 6-digit OTP code.')
+      return
+    }
+    if (!resetNewPassword) {
+      setResetErr('Please enter a strong new password.')
+      return
+    }
+    setResetBusy(true)
     try {
       const res = await fetch(`${apiBase}/auth/reset-password/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          email: resetEmail,
-          otp: resetOtp,
+          email: resetEmail.trim(),
+          otp: resetOtp.trim(),
           new_password: resetNewPassword
         })
       })
@@ -1169,15 +1217,19 @@ function InfoCard({ icon: Icon, title, text }) {
         const msg = Array.isArray(data.error) ? data.error.join(' ') : data.error
         throw new Error(msg || 'Password reset failed')
       }
-      setOtpSent(false); setResetOtp(''); setResetNewPassword('')
+      setOtpSent(false); setResetOtp(''); setResetNewPassword(''); setResendTimer(0)
+      setLocalError('')
+      setLocalSuccess(data.message || 'Password reset successful! Please sign in with your new password.')
       setAuthMode('login')
-      alert(data.message || 'Password reset successful! Please sign in.')
     } catch (err) {
       setResetErr(err.message)
     } finally {
       setResetBusy(false)
     }
   }
+
+  const displayError = localError || authError
+  const displaySuccess = localSuccess || authSuccess
 
   return (
     <div className="auth-page">
@@ -1210,7 +1262,7 @@ function InfoCard({ icon: Icon, title, text }) {
             <button
               type="button"
               className={!isSignup ? 'active' : ''}
-              onClick={() => setAuthMode('login')}
+              onClick={() => { setLocalError(''); setLocalSuccess(''); setAuthMode('login') }}
             >
               Login
             </button>
@@ -1218,7 +1270,7 @@ function InfoCard({ icon: Icon, title, text }) {
             <button
               type="button"
               className={isSignup ? 'active' : ''}
-              onClick={() => setAuthMode('signup')}
+              onClick={() => { setLocalError(''); setLocalSuccess(''); setAuthMode('signup') }}
             >
               Sign Up
             </button>
@@ -1226,7 +1278,7 @@ function InfoCard({ icon: Icon, title, text }) {
         )}
 
         {isReset ? (
-          <form onSubmit={otpSent ? handleConfirmReset : handleSendOtp} className="auth-form">
+          <form onSubmit={otpSent ? handleConfirmReset : handleSendOtp} className="auth-form" noValidate>
             <label className="form-field">
               <span>Registered Email</span>
               <input
@@ -1235,21 +1287,34 @@ function InfoCard({ icon: Icon, title, text }) {
                 onChange={e => setResetEmail(e.target.value)}
                 placeholder="Enter your registered email"
                 disabled={otpSent}
-                required
               />
             </label>
 
             {otpSent && (
               <>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem', marginTop: '-4px' }}>
+                  <span className="muted">
+                    {resendTimer > 0 ? `Resend OTP in ${resendTimer}s` : 'Did not receive code?'}
+                  </span>
+                  <button
+                    type="button"
+                    className="auth-link"
+                    style={{ margin: 0, opacity: resendTimer > 0 ? 0.5 : 1, cursor: resendTimer > 0 ? 'not-allowed' : 'pointer' }}
+                    disabled={resendTimer > 0 || resetBusy}
+                    onClick={requestOtpCode}
+                  >
+                    {resendTimer > 0 ? `Wait ${resendTimer}s` : 'Resend OTP'}
+                  </button>
+                </div>
+
                 <label className="form-field">
                   <span>6-Digit OTP</span>
                   <input
                     type="text"
                     maxLength={6}
                     value={resetOtp}
-                    onChange={e => setResetOtp(e.target.value)}
+                    onChange={e => setResetOtp(e.target.value.replace(/\D/g, ''))}
                     placeholder="Enter 6-digit code"
-                    required
                   />
                 </label>
 
@@ -1260,7 +1325,6 @@ function InfoCard({ icon: Icon, title, text }) {
                     value={resetNewPassword}
                     onChange={e => setResetNewPassword(e.target.value)}
                     placeholder="Enter strong new password"
-                    required
                   />
                 </label>
               </>
@@ -1292,7 +1356,7 @@ function InfoCard({ icon: Icon, title, text }) {
               type="button"
               className="auth-link"
               onClick={() => {
-                setOtpSent(false); setResetErr(''); setResetMsg('')
+                setOtpSent(false); setResetErr(''); setResetMsg(''); setResendTimer(0)
                 setAuthMode('login')
               }}
             >
@@ -1301,20 +1365,17 @@ function InfoCard({ icon: Icon, title, text }) {
           </form>
         ) : (
           <>
-            <form onSubmit={handleAuth} className="auth-form">
+            <form onSubmit={onValidatedAuthSubmit} className="auth-form" noValidate>
               <label className="form-field">
                 <span>Username</span>
                 <input
                   type="text"
                   value={authForm.username}
-                  onChange={e =>
-                    setAuthForm({
-                      ...authForm,
-                      username: e.target.value
-                    })
-                  }
+                  onChange={e => {
+                    setLocalError('')
+                    setAuthForm({ ...authForm, username: e.target.value })
+                  }}
                   placeholder="Enter username"
-                  required
                 />
               </label>
 
@@ -1324,14 +1385,11 @@ function InfoCard({ icon: Icon, title, text }) {
                   <input
                     type="email"
                     value={authForm.email}
-                    onChange={e =>
-                      setAuthForm({
-                        ...authForm,
-                        email: e.target.value
-                      })
-                    }
+                    onChange={e => {
+                      setLocalError('')
+                      setAuthForm({ ...authForm, email: e.target.value })
+                    }}
                     placeholder="Enter email address"
-                    required
                   />
                 </label>
               )}
@@ -1341,28 +1399,25 @@ function InfoCard({ icon: Icon, title, text }) {
                 <input
                   type="password"
                   value={authForm.password}
-                  onChange={e =>
-                    setAuthForm({
-                      ...authForm,
-                      password: e.target.value
-                    })
-                  }
+                  onChange={e => {
+                    setLocalError('')
+                    setAuthForm({ ...authForm, password: e.target.value })
+                  }}
                   placeholder="Enter password"
-                  required
                 />
               </label>
 
-              {authError && (
+              {displayError && (
                 <div className="error-message">
                   <AlertTriangle size={16} />
-                  {authError}
+                  {displayError}
                 </div>
               )}
 
-              {authSuccess && (
+              {displaySuccess && (
                 <div className="auth-success">
                   <CheckCircle2 size={16} />
-                  {authSuccess}
+                  {displaySuccess}
                 </div>
               )}
 
@@ -1384,7 +1439,8 @@ function InfoCard({ icon: Icon, title, text }) {
                 type="button"
                 className="auth-link"
                 onClick={() => {
-                  setResetErr(''); setResetMsg(''); setOtpSent(false)
+                  setResetErr(''); setResetMsg(''); setOtpSent(false); setResendTimer(0)
+                  setLocalError(''); setLocalSuccess('')
                   setAuthMode('reset')
                 }}
               >

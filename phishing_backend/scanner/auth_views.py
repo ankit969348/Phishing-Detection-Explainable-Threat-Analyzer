@@ -1,6 +1,6 @@
 import secrets
-import time
 from django.conf import settings
+from django.core.cache import cache
 from django.core.mail import send_mail
 from django.contrib.auth import authenticate, get_user_model
 from django.contrib.auth.password_validation import validate_password
@@ -13,7 +13,6 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.authtoken.models import Token
 
 User = get_user_model()
-OTP_STORE = {}
 
 
 class SignupView(APIView):
@@ -51,7 +50,7 @@ class LoginView(APIView):
 
     def post(self, request):
         username = (request.data.get("username") or "").strip()
-        password = request.data.get("password") or ""
+        password = (request.data.get("password") or "")
 
         if not username or not password:
             return Response({"error": "Username and password are required."}, status=status.HTTP_400_BAD_REQUEST)
@@ -96,7 +95,7 @@ class SendResetOTPView(APIView):
             return Response({"error": "No account found with this email."}, status=status.HTTP_404_NOT_FOUND)
 
         otp = f"{secrets.randbelow(900000) + 100000}"
-        OTP_STORE[email] = {"otp": otp, "expires": time.time() + 600, "username": user.username}
+        cache.set(f"threatlens_otp_{email}", otp, timeout=600)
 
         print(f"\n[THREATLENS OTP] Email: {email} | Username: {user.username} | OTP: {otp}\n")
 
@@ -126,8 +125,8 @@ class ResetPasswordView(APIView):
         if not email or not otp or not new_password:
             return Response({"error": "Email, OTP, and new password are required."}, status=status.HTTP_400_BAD_REQUEST)
 
-        record = OTP_STORE.get(email)
-        if not record or record["otp"] != otp or time.time() > record["expires"]:
+        saved_otp = cache.get(f"threatlens_otp_{email}")
+        if not saved_otp or saved_otp != otp:
             return Response({"error": "Invalid or expired OTP."}, status=status.HTTP_400_BAD_REQUEST)
 
         user = User.objects.filter(email__iexact=email).first()
@@ -141,7 +140,7 @@ class ResetPasswordView(APIView):
 
         user.set_password(new_password)
         user.save()
-        OTP_STORE.pop(email, None)
+        cache.delete(f"threatlens_otp_{email}")
         Token.objects.filter(user=user).delete()
 
-        return Response({"message": "Password reset successful. Please sign in."}, status=status.HTTP_200_OK)
+        return Response({"message": "Password reset successful. Please sign in with your new password."}, status=status.HTTP_200_OK)

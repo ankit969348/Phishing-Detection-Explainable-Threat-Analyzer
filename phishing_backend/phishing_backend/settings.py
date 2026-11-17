@@ -159,3 +159,10 @@ if EMAIL_HOST_USER and EMAIL_HOST_PASSWORD:
     DEFAULT_FROM_EMAIL = EMAIL_HOST_USER
 else:
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
+
+CACHES = {
+    'default': {
+        'BACKEND': 'django.core.cache.backends.db.DatabaseCache',
+        'LOCATION': 'threatlens_otp_cache',
+    }
+}
