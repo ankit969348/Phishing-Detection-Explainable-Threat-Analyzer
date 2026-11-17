@@ -339,6 +339,8 @@ const handleLogout = async () => {
 
 
 
+  }
+
   const runScan = async (event) => {
     event.preventDefault()
     setError('')
@@ -1028,8 +1030,6 @@ const handleLogout = async () => {
 
     </div>
   )
-}
-
 }
 
 function StatCard({ icon: Icon, title, value, note, tone }) {
