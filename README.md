@@ -51,6 +51,13 @@ Phishing-Detection-Explainable-Threat-Analyzer/
 └── README.md
 ```
 
+## Verified Machine Learning Benchmarks (80/20 Stratified Split)
+
+| Classifier | Algorithm & Features | Dataset Size | Accuracy | Precision | Recall | F1-Score |
+| :--- | :--- | :---: | :---: | :---: | :---: | :---: |
+| **Email Detector** | Random Forest + TF-IDF Vectorizer | 5,807 emails | **98.80%** | 97.96% | 97.96% | 97.96% |
+| **URL Detector** | Random Forest + 8 Lexical Features | 235,795 URLs | **93.78%** | 91.25% | 98.57% | 94.77% |
+
 ## How It Works
 
 ### 1. Email Analysis
@@ -165,6 +172,14 @@ Example combined request:
   "url": "http://secure-login-verify-account.example.com"
 }
 ```
+
+## Authentication & Password Recovery Endpoints
+
+- `POST /api/auth/signup/` — Register a new user account and issue a DRF auth token
+- `POST /api/auth/login/` — Authenticate user credentials
+- `POST /api/auth/logout/` — Invalidate active session token
+- `POST /api/auth/send-reset-otp/` — Generate a 6-digit time-bound OTP (10-minute expiry) and dispatch via Gmail SMTP (with offline console fallback)
+- `POST /api/auth/reset-password/` — Verify OTP, update password with Django PBKDF2 hashing, and revoke old tokens
 
 ## Risk Classification
 

@@ -818,16 +818,31 @@ const handleLogout = async () => {
         <InfoCard icon={ShieldCheck} title="Backend architecture" text="React frontend communicates with a Django REST API through the Vite development proxy." />
       </div>
       <div className="panel methodology-panel">
-        <h3>Current system workflow</h3>
-        <ol>
-          <li>User submits email content, URL or both through the scanner.</li>
-          <li>React sends a POST request to <code>/api/scan/</code>.</li>
-          <li>Django passes the input to the corresponding trained ML model.</li>
-          <li>The backend returns a risk score, label and red-flag indicators.</li>
-          <li>The dashboard displays the result and saves a local scan record.</li>
-        </ol>
-        <p className="small-note">Model accuracy, precision, recall and F1-score are not displayed here because verified evaluation metrics have not yet been connected to this dashboard.</p>
-      </div>
+          <h3>Verified ML Model Evaluation Benchmarks</h3>
+          <p className="muted" style={{marginBottom: "14px"}}>Evaluated on an 80/20 stratified test split across 5,807 email samples and 235,795 URL samples.</p>
+          <div className="about-grid" style={{marginBottom: "18px"}}>
+            <div className="stat-card">
+              <span className="eyebrow">EMAIL CLASSIFIER (RF + TF-IDF)</span>
+              <strong className="stat-value">98.80% Accuracy</strong>
+              <span className="stat-note">Precision: 97.96% · Recall: 97.96% · F1-Score: 97.96%</span>
+              <span className="stat-note">Test Set (1,162): 812 TN, 336 TP, 7 FP, 7 FN</span>
+            </div>
+            <div className="stat-card">
+              <span className="eyebrow">URL CLASSIFIER (RF + LEXICAL)</span>
+              <strong className="stat-value">93.78% Accuracy</strong>
+              <span className="stat-note">Precision: 91.25% · Recall: 98.57% · F1-Score: 94.77%</span>
+              <span className="stat-note">Test Set (47,159): 17,641 TN, 26,583 TP, 2,548 FP, 387 FN</span>
+            </div>
+          </div>
+          <h3>Current system workflow</h3>
+          <ol>
+            <li>User submits email content, URL or both through the scanner.</li>
+            <li>React sends a POST request to <code>/api/scan/</code>.</li>
+            <li>Django passes the input to the corresponding trained ML model.</li>
+            <li>The backend returns a risk score, label and red-flag indicators.</li>
+            <li>The dashboard displays the result and saves authenticated scan records to PostgreSQL.</li>
+          </ol>
+        </div>
     </>
   )
 
@@ -1105,6 +1120,64 @@ function InfoCard({ icon: Icon, title, text }) {
   onGuest
 }) {
   const isSignup = authMode === 'signup'
+  const isReset = authMode === 'reset'
+  const [resetEmail, setResetEmail] = useState('')
+  const [resetOtp, setResetOtp] = useState('')
+  const [resetNewPassword, setResetNewPassword] = useState('')
+  const [otpSent, setOtpSent] = useState(false)
+  const [resetBusy, setResetBusy] = useState(false)
+  const [resetErr, setResetErr] = useState('')
+  const [resetMsg, setResetMsg] = useState('')
+
+  const apiBase = typeof API_BASE_URL !== 'undefined' ? API_BASE_URL : 'http://127.0.0.1:8000/api'
+
+  const handleSendOtp = async (e) => {
+    e.preventDefault()
+    setResetBusy(true); setResetErr(''); setResetMsg('')
+    try {
+      const res = await fetch(`${apiBase}/auth/send-reset-otp/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: resetEmail })
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error || 'Failed to send OTP')
+      setOtpSent(true)
+      setResetMsg(data.message || '6-digit OTP sent to your email.')
+    } catch (err) {
+      setResetErr(err.message)
+    } finally {
+      setResetBusy(false)
+    }
+  }
+
+  const handleConfirmReset = async (e) => {
+    e.preventDefault()
+    setResetBusy(true); setResetErr(''); setResetMsg('')
+    try {
+      const res = await fetch(`${apiBase}/auth/reset-password/`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: resetEmail,
+          otp: resetOtp,
+          new_password: resetNewPassword
+        })
+      })
+      const data = await res.json()
+      if (!res.ok) {
+        const msg = Array.isArray(data.error) ? data.error.join(' ') : data.error
+        throw new Error(msg || 'Password reset failed')
+      }
+      setOtpSent(false); setResetOtp(''); setResetNewPassword('')
+      setAuthMode('login')
+      alert(data.message || 'Password reset successful! Please sign in.')
+    } catch (err) {
+      setResetErr(err.message)
+    } finally {
+      setResetBusy(false)
+    }
+  }
 
   return (
     <div className="auth-page">
@@ -1122,120 +1195,203 @@ function InfoCard({ icon: Icon, title, text }) {
 
         <div className="auth-heading">
           <span className="eyebrow">SECURE WORKSPACE</span>
-          <h1>{isSignup ? 'Create your account' : 'Welcome back'}</h1>
+          <h1>{isReset ? 'Reset your password' : isSignup ? 'Create your account' : 'Welcome back'}</h1>
           <p>
-            {isSignup
-              ? 'Create an account to manage your security scans.'
-              : 'Sign in to access your security workspace.'}
+            {isReset
+              ? 'Verify your registered email with a 6-digit OTP to set a new password.'
+              : isSignup
+                ? 'Create an account to manage your security scans.'
+                : 'Sign in to access your security workspace.'}
           </p>
         </div>
 
-        <div className="auth-tabs">
-          <button
-            type="button"
-            className={!isSignup ? 'active' : ''}
-            onClick={() => setAuthMode('login')}
-          >
-            Login
-          </button>
+        {!isReset && (
+          <div className="auth-tabs">
+            <button
+              type="button"
+              className={!isSignup ? 'active' : ''}
+              onClick={() => setAuthMode('login')}
+            >
+              Login
+            </button>
 
-          <button
-            type="button"
-            className={isSignup ? 'active' : ''}
-            onClick={() => setAuthMode('signup')}
-          >
-            Sign Up
-          </button>
-        </div>
+            <button
+              type="button"
+              className={isSignup ? 'active' : ''}
+              onClick={() => setAuthMode('signup')}
+            >
+              Sign Up
+            </button>
+          </div>
+        )}
 
-        <form onSubmit={handleAuth} className="auth-form">
-
-          <label className="form-field">
-            <span>Username</span>
-            <input
-              type="text"
-              value={authForm.username}
-              onChange={e =>
-                setAuthForm({
-                  ...authForm,
-                  username: e.target.value
-                })
-              }
-              placeholder="Enter username"
-              required
-            />
-          </label>
-
-          {isSignup && (
+        {isReset ? (
+          <form onSubmit={otpSent ? handleConfirmReset : handleSendOtp} className="auth-form">
             <label className="form-field">
-              <span>Email address</span>
+              <span>Registered Email</span>
               <input
                 type="email"
-                value={authForm.email}
-                onChange={e =>
-                  setAuthForm({
-                    ...authForm,
-                    email: e.target.value
-                  })
-                }
-                placeholder="Enter email address"
+                value={resetEmail}
+                onChange={e => setResetEmail(e.target.value)}
+                placeholder="Enter your registered email"
+                disabled={otpSent}
                 required
               />
             </label>
-          )}
 
-          <label className="form-field">
-            <span>Password</span>
-            <input
-              type="password"
-              value={authForm.password}
-              onChange={e =>
-                setAuthForm({
-                  ...authForm,
-                  password: e.target.value
-                })
-              }
-              placeholder="Enter password"
-              required
-            />
-          </label>
+            {otpSent && (
+              <>
+                <label className="form-field">
+                  <span>6-Digit OTP</span>
+                  <input
+                    type="text"
+                    maxLength={6}
+                    value={resetOtp}
+                    onChange={e => setResetOtp(e.target.value)}
+                    placeholder="Enter 6-digit code"
+                    required
+                  />
+                </label>
 
-          {authError && (
-            <div className="error-message">
-              <AlertTriangle size={16} />
-              {authError}
-            </div>
-          )}
+                <label className="form-field">
+                  <span>New Password</span>
+                  <input
+                    type="password"
+                    value={resetNewPassword}
+                    onChange={e => setResetNewPassword(e.target.value)}
+                    placeholder="Enter strong new password"
+                    required
+                  />
+                </label>
+              </>
+            )}
 
-          {authSuccess && (
-            <div className="auth-success">
-              <CheckCircle2 size={16} />
-              {authSuccess}
-            </div>
-          )}
+            {resetErr && (
+              <div className="error-message">
+                <AlertTriangle size={16} />
+                {resetErr}
+              </div>
+            )}
 
-          <button
-            className="button primary auth-submit"
-            type="submit"
-            disabled={authLoading}
-          >
-            {authLoading
-              ? 'Please wait...'
-              : isSignup
-                ? 'Create Account'
-                : 'Sign In'}
-          </button>
+            {resetMsg && (
+              <div className="auth-success">
+                <CheckCircle2 size={16} />
+                {resetMsg}
+              </div>
+            )}
 
-        </form>
+            <button
+              className="button primary auth-submit"
+              type="submit"
+              disabled={resetBusy}
+            >
+              {resetBusy ? 'Please wait...' : otpSent ? 'Verify OTP & Reset Password' : 'Send 6-Digit OTP'}
+            </button>
 
-        {!isSignup && (
-          <button
-            type="button"
-            className="auth-link"
-            onClick={() => alert('Forgot Password will be connected in the next step.')}
-          >
-            Forgot password?
-          </button>
+            <button
+              type="button"
+              className="auth-link"
+              onClick={() => {
+                setOtpSent(false); setResetErr(''); setResetMsg('')
+                setAuthMode('login')
+              }}
+            >
+              Back to Sign In
+            </button>
+          </form>
+        ) : (
+          <>
+            <form onSubmit={handleAuth} className="auth-form">
+              <label className="form-field">
+                <span>Username</span>
+                <input
+                  type="text"
+                  value={authForm.username}
+                  onChange={e =>
+                    setAuthForm({
+                      ...authForm,
+                      username: e.target.value
+                    })
+                  }
+                  placeholder="Enter username"
+                  required
+                />
+              </label>
+
+              {isSignup && (
+                <label className="form-field">
+                  <span>Email address</span>
+                  <input
+                    type="email"
+                    value={authForm.email}
+                    onChange={e =>
+                      setAuthForm({
+                        ...authForm,
+                        email: e.target.value
+                      })
+                    }
+                    placeholder="Enter email address"
+                    required
+                  />
+                </label>
+              )}
+
+              <label className="form-field">
+                <span>Password</span>
+                <input
+                  type="password"
+                  value={authForm.password}
+                  onChange={e =>
+                    setAuthForm({
+                      ...authForm,
+                      password: e.target.value
+                    })
+                  }
+                  placeholder="Enter password"
+                  required
+                />
+              </label>
+
+              {authError && (
+                <div className="error-message">
+                  <AlertTriangle size={16} />
+                  {authError}
+                </div>
+              )}
+
+              {authSuccess && (
+                <div className="auth-success">
+                  <CheckCircle2 size={16} />
+                  {authSuccess}
+                </div>
+              )}
+
+              <button
+                className="button primary auth-submit"
+                type="submit"
+                disabled={authLoading}
+              >
+                {authLoading
+                  ? 'Please wait...'
+                  : isSignup
+                    ? 'Create Account'
+                    : 'Sign In'}
+              </button>
+            </form>
+
+            {!isSignup && (
+              <button
+                type="button"
+                className="auth-link"
+                onClick={() => {
+                  setResetErr(''); setResetMsg(''); setOtpSent(false)
+                  setAuthMode('reset')
+                }}
+              >
+                Forgot password?
+              </button>
+            )}
+          </>
         )}
 
         <div className="auth-divider">
