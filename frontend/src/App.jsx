@@ -11,6 +11,8 @@ import {
 } from 'recharts'
 import './App.css'
 
+const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api').replace(/\/$/, '')
+
 
 
 
@@ -150,7 +152,7 @@ const [authForm, setAuthForm] = useState({
 
 const fetchDbHistory = async (authToken) => {
     try {
-      const res = await fetch('/api/history/', {
+      const res = await fetch(`${API_BASE_URL}/history/`, {
         headers: { Authorization: `Token ${authToken}` }
       })
       if (res.ok) {
@@ -170,7 +172,7 @@ const fetchDbHistory = async (authToken) => {
 
     const verifySession = async () => {
       try {
-        const response = await fetch('/api/auth/me/', {
+        const response = await fetch(`${API_BASE_URL}/auth/me/`, {
           headers: {
             Authorization: `Token ${token}`
           }
@@ -267,8 +269,8 @@ const handleAuth = async (event) => {
 
   const endpoint =
     authMode === 'signup'
-      ? '/api/auth/signup/'
-      : '/api/auth/login/'
+      ? `${API_BASE_URL}/auth/signup/`
+      : `${API_BASE_URL}/auth/login/`
 
   const payload =
     authMode === 'signup'
@@ -315,7 +317,7 @@ const handleAuth = async (event) => {
 const handleLogout = async () => {
   try {
     if (token) {
-      await fetch('/api/auth/logout/', {
+      await fetch(`${API_BASE_URL}/auth/logout/`, {
         method: 'POST',
         headers: {
           Authorization: `Token ${token}`
@@ -364,7 +366,7 @@ const handleLogout = async () => {
 
     setLoading(true)
     try {
-      const response = await fetch('/api/scan/', {
+      const response = await fetch(`${API_BASE_URL}/scan/`, {
         method: 'POST',
 
 
@@ -409,7 +411,7 @@ const handleLogout = async () => {
     }
     if (window.confirm('Delete all saved scan history from your account?')) {
       try {
-        await fetch('/api/history/', {
+        await fetch(`${API_BASE_URL}/history/`, {
           method: 'DELETE',
           headers: { Authorization: `Token ${token}` }
         })
@@ -1132,7 +1134,7 @@ function InfoCard({ icon: Icon, title, text }) {
   const [localError, setLocalError] = useState('')
   const [localSuccess, setLocalSuccess] = useState('')
 
-  const apiBase = typeof API_BASE_URL !== 'undefined' ? API_BASE_URL : 'http://127.0.0.1:8000/api'
+  const apiBase = API_BASE_URL
 
   useEffect(() => {
     if (resendTimer <= 0) return
