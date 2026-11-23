@@ -473,6 +473,51 @@ const handleLogout = async () => {
 
 
 
+      {(scan.domain || scan.sender_domain || scan.domain_creation_date) && (
+        <div
+          className="domain-intel-box"
+          style={{
+            marginTop: "14px",
+            marginBottom: "14px",
+            padding: "12px 16px",
+            borderRadius: "10px",
+            background: "rgba(15, 23, 42, 0.65)",
+            border: "1px solid rgba(148, 163, 184, 0.18)",
+            display: "flex",
+            flexWrap: "wrap",
+            gap: "18px",
+            alignItems: "center",
+            justifyContent: "space-between",
+            fontSize: "0.88rem",
+          }}
+        >
+          <div>
+            <span style={{ color: "#94a3b8", display: "block", fontSize: "0.75rem", textTransform: "uppercase" }}>
+              Verified Domain
+            </span>
+            <strong style={{ color: "#e2e8f0" }}>{scan.domain || scan.sender_domain}</strong>
+          </div>
+          <div>
+            <span style={{ color: "#94a3b8", display: "block", fontSize: "0.75rem", textTransform: "uppercase" }}>
+              Creation Date
+            </span>
+            <strong style={{ color: scan.domain_creation_date ? "#38bdf8" : "#94a3b8" }}>
+              {scan.domain_creation_date || "Hidden / WHOIS Protected"}
+            </strong>
+          </div>
+          <div>
+            <span style={{ color: "#94a3b8", display: "block", fontSize: "0.75rem", textTransform: "uppercase" }}>
+              Domain Age
+            </span>
+            <strong style={{ color: typeof scan.domain_age_days === "number" ? (scan.domain_age_days < 180 ? "#f59e0b" : "#34d399") : "#94a3b8" }}>
+              {typeof scan.domain_age_days === "number"
+                ? `${scan.domain_age_days.toLocaleString()} days (${(scan.domain_age_days / 365).toFixed(1)} yrs)`
+                : "Not publicly listed"}
+            </strong>
+          </div>
+        </div>
+      )}
+
        <div className="explanation-block">
   <h4>
     <AlertTriangle size={16} />
@@ -508,7 +553,7 @@ const handleLogout = async () => {
       })}
     </div>
   ) : (
-    <p className="muted">No red flags returned. This does not guarantee safety.</p>
+    <p className="muted">No red flags returned.</p>
   )}
 </div>
 
