@@ -1,4 +1,4 @@
-const DEFAULT_API_BASE = "http://127.0.0.1:8000/api";
+const DEFAULT_API_BASE = "https://threatlens-backend-fzz3.onrender.com/api";
 const scannedTabUrls = new Map();
 const lastAlertByTab = new Map();
 

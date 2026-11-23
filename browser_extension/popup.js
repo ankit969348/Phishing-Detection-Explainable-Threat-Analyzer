@@ -1,4 +1,4 @@
-const DEFAULT_API = "http://127.0.0.1:8000/api";
+const DEFAULT_API = "https://threatlens-backend-fzz3.onrender.com/api";
 
 function badgeClass(label) {
   const l = (label || "legitimate").toLowerCase();
