@@ -38,7 +38,6 @@ function isRisky(res) {
   return res && (res.label === "phishing" || res.label === "suspicious" || res.score >= 40);
 }
 
-// 1. Direct Navigation Check
 (async function checkOpenedPage() {
   const currentUrl = window.location.href;
   if (!currentUrl.startsWith("http")) return;
@@ -48,7 +47,6 @@ function isRisky(res) {
   if (isRisky(res)) showWarningOverlay(currentUrl, res, true);
 })();
 
-// 2. Reliable Repeatable Hover Card (Works every single time you hover)
 let hoverCard = null;
 let currentHoveredAnchor = null;
 
@@ -117,7 +115,6 @@ document.addEventListener("mousemove", async (e) => {
   }
 }, true);
 
-// 3. Instant Pre-Click Block
 document.addEventListener("click", (e) => {
   const anchor = e.target && e.target.closest ? e.target.closest("a[href]") : null;
   if (!anchor || !anchor.href || !anchor.href.startsWith("http")) return;
@@ -134,7 +131,6 @@ document.addEventListener("click", (e) => {
   }
 }, true);
 
-// 4. Chrome-Style Full Explanation Warning Banner
 function showWarningOverlay(targetUrl, result, isFullPage) {
   const existing = document.getElementById("tl-guard-banner");
   if (existing) existing.remove();
