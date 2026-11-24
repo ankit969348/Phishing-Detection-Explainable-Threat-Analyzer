@@ -1,180 +1,185 @@
-let lastScannedSignature = "";
-let scanCooldown = false;
+const API_DEFAULT = "https://threatlens-backend-fzz3.onrender.com/api";
+const scanCache = new Map();
 
-const SUSPICIOUS_TRIGGER = /(https?:\/\/|www\.|verify|urgent|suspend|account|password|otp|bank|kyc|lottery|prize|click here|login|bet|betting|casino|bonus)/i;
+async function getApiBase() {
+  try {
+    const stored = await chrome.storage.local.get(["apiEndpoint"]);
+    return (stored.apiEndpoint || API_DEFAULT).replace(/\/+$/, "");
+  } catch {
+    return API_DEFAULT;
+  }
+}
 
-function showThreatBanner(result, source) {
-  const label = (result.label || "legitimate").toLowerCase();
-  if (label === "legitimate" || label === "safe") return;
+async function scanUrlWithBackend(urlStr) {
+  if (!urlStr || !urlStr.startsWith("http")) return null;
+  if (scanCache.has(urlStr) && typeof scanCache.get(urlStr)?.score === "number") {
+    return scanCache.get(urlStr);
+  }
+  try {
+    const base = await getApiBase();
+    const res = await fetch(`${base}/scan/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: urlStr })
+    });
+    if (!res.ok) return null;
+    const data = await res.json();
+    const result = {
+      score: Math.round(data.risk_score || 0),
+      label: (data.label || "legitimate").toLowerCase(),
+      reasons: (data.red_flags || []).slice(0, 3)
+    };
+    scanCache.set(urlStr, result);
+    return result;
+  } catch {
+    return null;
+  }
+}
 
-  const existing = document.getElementById("threatlens-warning-banner");
-  if (existing) existing.remove();
+function isRisky(res) {
+  return res && (res.label === "phishing" || res.label === "suspicious" || res.score >= 40);
+}
 
-  const isPhishing = label === "phishing";
-  const banner = document.createElement("div");
-  banner.id = "threatlens-warning-banner";
-  banner.style.cssText = `
-    position: fixed;
-    top: 14px;
-    right: 14px;
-    z-index: 2147483647;
-    max-width: 390px;
-    background: ${isPhishing ? "#7f1d1d" : "#78350f"};
-    color: #ffffff;
-    border: 2px solid ${isPhishing ? "#ef4444" : "#f59e0b"};
-    border-radius: 12px;
-    padding: 14px 16px;
-    font-family: system-ui, -apple-system, sans-serif;
-    box-shadow: 0 12px 30px rgba(0,0,0,0.45);
-    line-height: 1.4;
-  `;
+// 1. Direct Navigation Check (If user opens risky URL directly, show Chrome-style Full-Screen Warning Banner)
+(async function checkOpenedPage() {
+  const currentUrl = window.location.href;
+  if (!currentUrl.startsWith("http")) return;
+  const res = await scanUrlWithBackend(currentUrl);
+  if (isRisky(res)) {
+    showWarningOverlay(currentUrl, res, true);
+  }
+})();
 
-  const indicators = (result.red_flags || []).slice(0, 4);
-  const reasonsHtml = indicators.length
-    ? `<ul style="margin: 8px 0 0 16px; padding: 0; font-size: 12px; color: #fecaca;">${indicators.map(i => `<li>${i}</li>`).join("")}</ul>`
-    : "";
+// 2. Smart Hover Card (Shows ONLY when Risky; completely silent on safe links)
+let hoverCard = null;
+let activeHoverUrl = null;
 
-  banner.innerHTML = `
-    <div style="display:flex; justify-content:space-between; align-items:center; gap:8px;">
-      <strong style="font-size:14px;">
-        ${isPhishing ? "🚨 ThreatLens: PHISHING DETECTED" : "⚠️ ThreatLens: SUSPICIOUS CONTENT"}
-      </strong>
-      <button id="threatlens-close-btn" style="background:rgba(255,255,255,0.18); border:none; color:#fff; border-radius:6px; padding:2px 8px; cursor:pointer; font-weight:bold;">✕</button>
-    </div>
-    <div style="font-size:12px; margin-top:4px; opacity:0.95;">
-      Source: <b>${source}</b> · Risk Score: <b>${result.risk_score ?? 0}/100</b>
-    </div>
+function showRiskHoverCard(x, y, result) {
+  if (!hoverCard) {
+    hoverCard = document.createElement("div");
+    hoverCard.style.cssText = "position:fixed;z-index:2147483646;pointer-events:none;max-width:300px;background:#0f172a;color:#f8fafc;padding:10px 12px;border-radius:10px;font-family:system-ui,sans-serif;box-shadow:0 12px 28px rgba(0,0,0,0.55);";
+    document.body.appendChild(hoverCard);
+  }
+  const isHigh = result.label === "phishing" || result.score >= 70;
+  const accent = isHigh ? "#ef4444" : "#f59e0b";
+  const reasonsHtml = result.reasons.length
+    ? `<ul style="margin:6px 0 0;padding-left:15px;font-size:11px;color:#cbd5e1;line-height:1.4;">${result.reasons.map(r => `<li>${r}</li>`).join("")}</ul>`
+    : `<div style="margin-top:4px;font-size:11px;color:#cbd5e1;">Suspicious URL indicators detected</div>`;
+
+  hoverCard.style.border = `1.5px solid ${accent}`;
+  hoverCard.style.left = Math.min(x + 14, window.innerWidth - 320) + "px";
+  hoverCard.style.top = Math.min(y + 14, window.innerHeight - 120) + "px";
+  hoverCard.style.display = "block";
+  hoverCard.innerHTML = `
+    <div style="font-size:11px;font-weight:800;color:${accent};">⚠️ THREATLENS ${result.label.toUpperCase()} · ${result.score}/100</div>
     ${reasonsHtml}
   `;
-
-  document.body.appendChild(banner);
-  document.getElementById("threatlens-close-btn").onclick = () => banner.remove();
 }
 
-chrome.runtime.onMessage.addListener((msg) => {
-  if (msg.type === "THREATLENS_ALERT" && msg.result) {
-    showThreatBanner(msg.result, msg.source || "Website URL");
+document.addEventListener("mouseover", async (e) => {
+  const anchor = e.target.closest("a[href]");
+  if (!anchor || !anchor.href.startsWith("http")) return;
+  const url = anchor.href;
+  try { if (new URL(url).hostname === window.location.hostname) return; } catch { return; }
+
+  activeHoverUrl = url;
+  const res = await scanUrlWithBackend(url);
+  if (activeHoverUrl === url && isRisky(res)) {
+    showRiskHoverCard(e.clientX, e.clientY, res);
   }
 });
 
-function isIgnoredHost(host) {
-  const safeHosts = ["localhost", "127.0.0.1", "gemini.google.com", "github.com", "wikipedia.org"];
-  return safeHosts.some(h => host === h || host.endsWith("." + h));
-}
-
-function extractRelevantPageText() {
-  const host = window.location.hostname;
-  if (host.includes("web.whatsapp.com")) {
-    const bubbles = Array.from(document.querySelectorAll("div.copyable-text, span.selectable-text"));
-    const recent = bubbles.slice(-4).map(el => el.innerText).join(" \n ");
-    return { source: "WhatsApp Web", text: recent.slice(0, 1500), url: "" };
+document.addEventListener("mouseout", (e) => {
+  if (e.target.closest("a[href]")) {
+    activeHoverUrl = null;
+    if (hoverCard) hoverCard.style.display = "none";
   }
-  if (host.includes("mail.google.com")) {
-    const mailBody = document.querySelector("div.a3s.aiL");
-    if (!mailBody) return { source: "Gmail Web", text: "", url: "" };
-    return { source: "Gmail Web", text: (mailBody.innerText || "").slice(0, 2000), url: "" };
-  }
-  if (host.includes("www.google.com")) {
-    const topResultLink = document.querySelector("#search a[href^='http']:not([href*='google.com'])");
-    if (!topResultLink) return { source: "Google Search", text: "", url: "" };
-    const resultBlock = topResultLink.closest("div.g") || topResultLink.parentElement;
-    return {
-      source: "Google Search Result",
-      text: (resultBlock?.innerText || "").slice(0, 800),
-      url: topResultLink.href
-    };
-  }
-  return { source: "Webpage Content", text: (document.body?.innerText || "").slice(0, 1500), url: "" };
-}
-
-function inspectDomForThreats() {
-  if (scanCooldown) return;
-  const host = window.location.hostname;
-  if (isIgnoredHost(host)) return;
-
-  const { source, text, url } = extractRelevantPageText();
-  if (!text || text.length < 15) return;
-  if (!SUSPICIOUS_TRIGGER.test(text + " " + url)) return;
-
-  const signature = `${source}:${url}:${text.slice(0, 150)}`;
-  if (signature === lastScannedSignature) return;
-  lastScannedSignature = signature;
-  scanCooldown = true;
-  setTimeout(() => { scanCooldown = false; }, 5000);
-
-  const urlMatch = url || (text.match(/https?:\/\/[^\s"'<>]+/i)?.[0] || "");
-  chrome.runtime.sendMessage(
-    { type: "SCAN_CONTENT", source, text, url: urlMatch },
-    (resp) => {
-      if (resp?.ok && resp.result) {
-        const lbl = (resp.result.label || "legitimate").toLowerCase();
-        if (lbl !== "legitimate" && lbl !== "safe") {
-          showThreatBanner(resp.result, source);
-        }
-      }
-    }
-  );
-}
-
-const observer = new MutationObserver(() => {
-  inspectDomForThreats();
 });
 
-if (document.body) {
-  observer.observe(document.body, { childList: true, subtree: true });
-  setTimeout(inspectDomForThreats, 1800);
-}
-
-// --- Clean Pre-Click Guard (Uses Exact Backend ML Result Only) ---
+// 3. Pre-Click Check (Silent & normal if safe; Full Explanation Banner if risky)
 document.addEventListener("click", async (e) => {
   const anchor = e.target.closest("a[href]");
   if (!anchor || !anchor.href.startsWith("http")) return;
   if (e.ctrlKey || e.metaKey || e.shiftKey) return;
+  const url = anchor.href;
+  try { if (new URL(url).hostname === window.location.hostname) return; } catch { return; }
 
-  const targetUrl = anchor.href;
-  const currentHost = window.location.hostname;
-  try {
-    if (new URL(targetUrl).hostname === currentHost) return;
-  } catch { return; }
+  // If already verified safe, let browser open normally without any interruption
+  const cached = scanCache.get(url);
+  if (cached && !isRisky(cached)) return;
 
+  // Pause navigation briefly to verify with ML backend
   e.preventDefault();
   e.stopImmediatePropagation();
+  if (hoverCard) hoverCard.style.display = "none";
 
-  try {
-    const stored = await chrome.storage.local.get(["apiEndpoint"]);
-    const base = (stored.apiEndpoint || "https://threatlens-backend-fzz3.onrender.com/api").replace(/\/+$/, "");
-    const res = await fetch(`${base}/scan/`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ url: targetUrl })
-    });
-    const data = await res.json();
-    const score = Math.round(data.risk_score || 0);
-    const label = (data.label || "legitimate").toLowerCase();
-
-    if (label === "phishing" || label === "suspicious" || score >= 40) {
-      const accent = label === "phishing" || score >= 70 ? "#ef4444" : "#f59e0b";
-      const modal = document.createElement("div");
-      modal.style.cssText = "position:fixed;inset:0;z-index:2147483647;background:rgba(2,6,23,0.85);display:flex;align-items:center;justify-content:center;font-family:system-ui,sans-serif;padding:16px;";
-      modal.innerHTML = `
-        <div style="max-width:440px;width:100%;background:#111827;border:2px solid ${accent};border-radius:14px;padding:22px;color:#f8fafc;">
-          <div style="color:${accent};font-weight:800;font-size:12px;margin-bottom:6px;">
-            ⚠️ THREATLENS PRE-CLICK ALERT · ${label.toUpperCase()} (${score}/100)
-          </div>
-          <h3 style="margin:0 0 8px;font-size:17px;">Potentially Unsafe Link Detected</h3>
-          <p style="margin:0 0 16px;font-size:12px;color:#94a3b8;word-break:break-all;">${targetUrl}</p>
-          <div style="display:flex;gap:10px;justify-content:flex-end;">
-            <button id="tl-block-btn" style="background:${accent};color:#000;border:none;font-weight:700;padding:8px 14px;border-radius:8px;cursor:pointer;">Stay Safe</button>
-            <button id="tl-open-btn" style="background:transparent;color:#94a3b8;border:1px solid #475569;padding:8px 12px;border-radius:8px;cursor:pointer;">Proceed Anyway</button>
-          </div>
-        </div>
-      `;
-      document.body.appendChild(modal);
-      document.getElementById("tl-block-btn").onclick = () => modal.remove();
-      document.getElementById("tl-open-btn").onclick = () => { modal.remove(); window.location.href = targetUrl; };
-      return;
-    }
-  } catch (_) {}
-
-  window.location.href = targetUrl;
+  const res = cached || await scanUrlWithBackend(url);
+  if (isRisky(res)) {
+    showWarningOverlay(url, res, false);
+  } else {
+    window.open(url, anchor.target || "_self", "noopener");
+  }
 }, true);
+
+// 4. Chrome-Style Full Explanation Warning Banner (Both Pre-Click & Full-Page)
+function showWarningOverlay(targetUrl, result, isFullPage) {
+  const existing = document.getElementById("tl-guard-banner");
+  if (existing) existing.remove();
+
+  const mount = () => {
+    if (!document.body) { requestAnimationFrame(mount); return; }
+    const isHigh = result.label === "phishing" || result.score >= 70;
+    const bg = isHigh ? "rgba(69, 10, 10, 0.97)" : "rgba(69, 26, 3, 0.97)";
+    const accent = isHigh ? "#ef4444" : "#f59e0b";
+    const reasonsList = result.reasons.length
+      ? result.reasons.map(r => `<li>${r}</li>`).join("")
+      : "<li>Suspicious URL pattern and phishing indicators detected by ThreatLens AI</li>";
+
+    const overlay = document.createElement("div");
+    overlay.id = "tl-guard-banner";
+    overlay.style.cssText = `
+      position:fixed;inset:0;z-index:2147483647;background:${bg};
+      backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;
+      font-family:system-ui,-apple-system,sans-serif;color:#fff;padding:24px;
+    `;
+    overlay.innerHTML = `
+      <div style="max-width:540px;width:100%;background:#0f172a;border:2px solid ${accent};border-radius:16px;padding:28px;box-shadow:0 25px 60px rgba(0,0,0,0.75);">
+        <div style="display:inline-block;background:${accent};color:#000;font-weight:800;font-size:12px;padding:4px 10px;border-radius:6px;margin-bottom:12px;">
+          ⚠️ DECEPTIVE / ${result.label.toUpperCase()} SITE AHEAD · RISK ${result.score}/100
+        </div>
+        <h2 style="margin:0 0 10px;font-size:22px;color:#fff;">ThreatLens Stopped This Connection</h2>
+        <p style="margin:0 0 14px;font-size:13px;color:#cbd5e1;line-height:1.5;">
+          Attackers on this link may trick you into sharing passwords, OTPs, or banking details.
+        </p>
+        <div style="background:#1e293b;border-left:3px solid ${accent};padding:12px 14px;border-radius:8px;margin-bottom:16px;">
+          <div style="font-size:12px;font-weight:700;color:${accent};margin-bottom:6px;">Explainable AI Findings:</div>
+          <ul style="margin:0;padding-left:18px;font-size:13px;color:#f1f5f9;line-height:1.5;">
+            ${reasonsList}
+          </ul>
+        </div>
+        <p style="margin:0 0 20px;font-size:11px;color:#94a3b8;word-break:break-all;">Blocked URL: ${targetUrl}</p>
+        <div style="display:flex;gap:12px;justify-content:flex-end;">
+          <button id="tl-proceed-risk" style="background:transparent;color:#94a3b8;border:1px solid #475569;padding:10px 14px;border-radius:8px;cursor:pointer;font-size:13px;">
+            Ignore Risk & Proceed
+          </button>
+          <button id="tl-back-safe" style="background:${accent};color:#000;border:none;font-weight:800;padding:10px 18px;border-radius:8px;cursor:pointer;font-size:13px;">
+            Back to Safety
+          </button>
+        </div>
+      </div>
+    `;
+    document.body.appendChild(overlay);
+    document.getElementById("tl-back-safe").onclick = () => {
+      overlay.remove();
+      if (isFullPage) {
+        if (window.history.length > 1) window.history.back();
+        else window.location.href = "https://www.google.com";
+      }
+    };
+    document.getElementById("tl-proceed-risk").onclick = () => {
+      overlay.remove();
+      if (!isFullPage) window.open(targetUrl, "_blank", "noopener");
+    };
+  };
+  mount();
+}
