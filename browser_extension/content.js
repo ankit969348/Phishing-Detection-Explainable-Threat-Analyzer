@@ -1,5 +1,24 @@
 const scanCache = new Map();
 
+function instantLocalCheck(urlStr) {
+  try {
+    const u = new URL(urlStr);
+    const reasons = [];
+    let score = 0;
+    if (u.protocol === "http:") { score += 35; reasons.push("Unencrypted HTTP connection (No HTTPS)"); }
+    if ([".xyz", ".top", ".info", ".club", ".online", ".site", ".tk", ".ml"].some(t => u.hostname.endsWith(t))) {
+      score += 35; reasons.push("High-risk / untrusted domain extension");
+    }
+    const hits = ["login", "verify", "secure", "update", "bank", "account", "kyc", "wallet", "reward"].filter(k => urlStr.toLowerCase().includes(k));
+    if (hits.length >= 2) { score += 30; reasons.push("Phishing keywords: " + hits.slice(0, 3).join(", ")); }
+    else if (hits.length === 1) { score += 15; reasons.push("Sensitive keyword: " + hits[0]); }
+    const label = score >= 70 ? "phishing" : score >= 40 ? "suspicious" : "legitimate";
+    return { score: Math.min(score, 99), label, reasons };
+  } catch {
+    return { score: 0, label: "legitimate", reasons: [] };
+  }
+}
+
 function scanUrlViaBackground(urlStr) {
   if (!urlStr || !urlStr.startsWith("http")) return Promise.resolve(null);
   if (scanCache.has(urlStr)) return Promise.resolve(scanCache.get(urlStr));
@@ -7,16 +26,11 @@ function scanUrlViaBackground(urlStr) {
   return new Promise((resolve) => {
     try {
       chrome.runtime.sendMessage({ type: "THREATLENS_SCAN_URL", url: urlStr }, (res) => {
-        if (chrome.runtime.lastError || !res) {
-          resolve(null);
-          return;
-        }
+        if (chrome.runtime.lastError || !res) { resolve(null); return; }
         scanCache.set(urlStr, res);
         resolve(res);
       });
-    } catch {
-      resolve(null);
-    }
+    } catch { resolve(null); }
   });
 }
 
@@ -24,22 +38,24 @@ function isRisky(res) {
   return res && (res.label === "phishing" || res.label === "suspicious" || res.score >= 40);
 }
 
-// 1. Direct Navigation Check (Full-Screen Warning Banner on Risky Sites)
+// 1. Direct Navigation Check
 (async function checkOpenedPage() {
   const currentUrl = window.location.href;
   if (!currentUrl.startsWith("http")) return;
+  const local = instantLocalCheck(currentUrl);
+  if (isRisky(local)) showWarningOverlay(currentUrl, local, true);
   const res = await scanUrlViaBackground(currentUrl);
   if (isRisky(res)) showWarningOverlay(currentUrl, res, true);
 })();
 
-// 2. Smart Hover Card (Appears ONLY when Risky; Silent on Safe Links)
+// 2. Zero-Delay Smart Hover Card (Shows ONLY when Risky; Silent on Safe Links)
 let hoverCard = null;
 let activeHoverUrl = null;
 
 function showRiskHoverCard(x, y, result) {
   if (!hoverCard) {
     hoverCard = document.createElement("div");
-    hoverCard.style.cssText = "position:fixed;z-index:2147483647;pointer-events:none;max-width:300px;background:#0f172a;color:#f8fafc;padding:10px 12px;border-radius:10px;font-family:system-ui,sans-serif;box-shadow:0 12px 28px rgba(0,0,0,0.65);";
+    hoverCard.style.cssText = "position:fixed;z-index:2147483647;pointer-events:none;max-width:300px;background:#0f172a;color:#f8fafc;padding:10px 12px;border-radius:10px;font-family:system-ui,sans-serif;box-shadow:0 12px 28px rgba(0,0,0,0.75);";
     document.documentElement.appendChild(hoverCard);
   }
   const isHigh = result.label === "phishing" || result.score >= 70;
@@ -50,7 +66,7 @@ function showRiskHoverCard(x, y, result) {
 
   hoverCard.style.border = `2px solid ${accent}`;
   hoverCard.style.left = Math.min(x + 14, window.innerWidth - 320) + "px";
-  hoverCard.style.top = Math.max(10, Math.min(y - 75, window.innerHeight - 130)) + "px";
+  hoverCard.style.top = Math.max(10, Math.min(y - 80, window.innerHeight - 130)) + "px";
   hoverCard.style.display = "block";
   hoverCard.innerHTML = `
     <div style="font-size:11px;font-weight:800;color:${accent};">⚠️ THREATLENS ${result.label.toUpperCase()} · ${result.score}/100</div>
@@ -65,10 +81,18 @@ document.addEventListener("mouseover", async (e) => {
   try { if (new URL(url).hostname === window.location.hostname) return; } catch { return; }
 
   activeHoverUrl = url;
-  const res = await scanUrlViaBackground(url);
-  if (activeHoverUrl === url && isRisky(res)) {
-    anchor.removeAttribute("title");
-    showRiskHoverCard(e.clientX, e.clientY, res);
+  anchor.removeAttribute("title");
+
+  // Show instantly using zero-delay check if risky (doesn't wait for Render cold start)
+  const immediate = scanCache.get(url) || instantLocalCheck(url);
+  if (isRisky(immediate)) {
+    showRiskHoverCard(e.clientX, e.clientY, immediate);
+  }
+
+  // Sync with live Render ML backend in background
+  const live = await scanUrlViaBackground(url);
+  if (activeHoverUrl === url && isRisky(live)) {
+    showRiskHoverCard(e.clientX, e.clientY, live);
   }
 }, true);
 
@@ -79,26 +103,20 @@ document.addEventListener("mouseout", (e) => {
   }
 }, true);
 
-// 3. Pre-Click Check (Silent if Safe; Full Explanation Banner if Risky)
-document.addEventListener("click", async (e) => {
+// 3. Instant Pre-Click Block (Zero-Delay Interception)
+document.addEventListener("click", (e) => {
   const anchor = e.target.closest("a[href]");
   if (!anchor || !anchor.href.startsWith("http")) return;
   if (e.ctrlKey || e.metaKey || e.shiftKey) return;
   const url = anchor.href;
   try { if (new URL(url).hostname === window.location.hostname) return; } catch { return; }
 
-  const cached = scanCache.get(url);
-  if (cached && !isRisky(cached)) return;
-
-  e.preventDefault();
-  e.stopImmediatePropagation();
-  if (hoverCard) hoverCard.style.display = "none";
-
-  const res = cached || await scanUrlViaBackground(url);
-  if (isRisky(res)) {
-    showWarningOverlay(url, res, false);
-  } else {
-    window.open(url, anchor.target || "_blank", "noopener");
+  const check = scanCache.get(url) || instantLocalCheck(url);
+  if (isRisky(check)) {
+    e.preventDefault();
+    e.stopImmediatePropagation();
+    if (hoverCard) hoverCard.style.display = "none";
+    showWarningOverlay(url, check, false);
   }
 }, true);
 
