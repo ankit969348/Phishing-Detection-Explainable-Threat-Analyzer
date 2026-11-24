@@ -190,6 +190,9 @@ def scan_url(url):
     probabilities = url_model.predict_proba(df)[0]
     prob = float(probabilities[list(url_model.classes_).index(0)])
 
+    age_days, creation_date_str = get_domain_age_info(hostname)
+    is_established = (age_days is not None and age_days > 365)
+
     red_flags = []
     if feats['has_ip']:
         red_flags.append("Uses an IP address instead of a domain name")
@@ -201,30 +204,38 @@ def scan_url(url):
         red_flags.append("Many hyphens in URL")
     if feats['num_subdomains'] >= 3:
         red_flags.append("Unusually many subdomains")
-    if feats['has_suspicious_word'] and not is_trusted_domain(hostname):
-        red_flags.append("Contains suspicious keyword (login/secure/verify/account/bank...)")
-    if feats['url_length'] > 75 and not is_trusted_domain(hostname):
-        red_flags.append("Very long URL")
 
-    age_days, creation_date_str = get_domain_age_info(hostname)
+    # Context-aware keyword & length flags (avoid false positives on established HTTPS domains)
+    if feats['has_suspicious_word'] and not is_trusted_domain(hostname):
+        if not (is_established and feats['has_https']):
+            red_flags.append("Contains suspicious keyword (login/secure/verify/account/bank...)")
+
+    if feats['url_length'] > 75 and not is_trusted_domain(hostname):
+        # Long marketing/UTM URLs on established (>1 yr) HTTPS domains are normal
+        if not (is_established and feats['has_https']):
+            red_flags.append("Very long URL")
+
     if age_days is not None:
         if age_days < 30:
             red_flags.append(f"Newly registered domain ({age_days} days old, created {creation_date_str})")
-            prob = max(prob, 0.80)
+            prob = max(prob, 0.82)
         elif age_days < 180:
             red_flags.append(f"Recently registered domain ({age_days} days old, created {creation_date_str})")
             prob = max(prob, 0.55)
-        elif age_days > 365:
-            prob *= 0.55
+        elif is_established:
+            prob *= 0.45
 
     if is_trusted_domain(hostname) and not feats['num_at']:
         prob = min(prob * 0.30, 0.18)
     elif not red_flags:
-        # No heuristic or WHOIS red flags found -> prevent raw URL model over-firing
-        prob = min(prob * 0.25, 0.26)
+        # Established or clean URL with no genuine red flags -> Legitimate
+        prob = min(prob * 0.25, 0.24)
+    elif is_established and not feats['has_ip'] and not feats['num_at']:
+        # Established (>1 yr) domain using HTTP or login path -> warn as Suspicious, never Phishing
+        prob = min(max(prob, 0.45), 0.58)
     elif len(red_flags) == 1 and prob > 0.68:
-        # Single minor flag without newly registered domain -> cap at Suspicious
-        prob = min(prob, 0.62)
+        # Single weak signal without newly registered domain -> cap at Suspicious
+        prob = min(prob, 0.58)
 
     prob = round(min(max(prob, 0.01), 0.99), 4)
     res = {
