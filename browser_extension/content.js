@@ -48,65 +48,79 @@ function isRisky(res) {
   if (isRisky(res)) showWarningOverlay(currentUrl, res, true);
 })();
 
-// 2. Zero-Delay Smart Hover Card (Shows ONLY when Risky; Silent on Safe Links)
+// 2. Reliable Repeatable Hover Card (Works every single time you hover)
 let hoverCard = null;
-let activeHoverUrl = null;
+let currentHoveredAnchor = null;
 
-function showRiskHoverCard(x, y, result) {
-  if (!hoverCard) {
+function ensureHoverCard() {
+  if (!hoverCard || !document.documentElement.contains(hoverCard)) {
     hoverCard = document.createElement("div");
-    hoverCard.style.cssText = "position:fixed;z-index:2147483647;pointer-events:none;max-width:300px;background:#0f172a;color:#f8fafc;padding:10px 12px;border-radius:10px;font-family:system-ui,sans-serif;box-shadow:0 12px 28px rgba(0,0,0,0.75);";
+    hoverCard.style.cssText = "position:fixed;z-index:2147483647;pointer-events:none;max-width:300px;background:#0f172a;color:#f8fafc;padding:10px 12px;border-radius:10px;font-family:system-ui,sans-serif;box-shadow:0 12px 28px rgba(0,0,0,0.75);display:none;";
     document.documentElement.appendChild(hoverCard);
   }
+  return hoverCard;
+}
+
+function showRiskHoverCard(x, y, result) {
+  const card = ensureHoverCard();
   const isHigh = result.label === "phishing" || result.score >= 70;
   const accent = isHigh ? "#ef4444" : "#f59e0b";
   const reasonsHtml = result.reasons.length
     ? `<ul style="margin:6px 0 0;padding-left:15px;font-size:11px;color:#cbd5e1;line-height:1.4;">${result.reasons.map(r => `<li>${r}</li>`).join("")}</ul>`
     : `<div style="margin-top:4px;font-size:11px;color:#cbd5e1;">Suspicious URL indicators detected</div>`;
 
-  hoverCard.style.border = `2px solid ${accent}`;
-  hoverCard.style.left = Math.min(x + 14, window.innerWidth - 320) + "px";
-  hoverCard.style.top = Math.max(10, Math.min(y - 80, window.innerHeight - 130)) + "px";
-  hoverCard.style.display = "block";
-  hoverCard.innerHTML = `
+  card.style.border = `2px solid ${accent}`;
+  card.style.left = Math.min(x + 14, window.innerWidth - 320) + "px";
+  card.style.top = Math.max(10, Math.min(y - 85, window.innerHeight - 130)) + "px";
+  card.style.display = "block";
+  card.innerHTML = `
     <div style="font-size:11px;font-weight:800;color:${accent};">⚠️ THREATLENS ${result.label.toUpperCase()} · ${result.score}/100</div>
     ${reasonsHtml}
   `;
 }
 
-document.addEventListener("mouseover", async (e) => {
-  const anchor = e.target.closest("a[href]");
-  if (!anchor || !anchor.href.startsWith("http")) return;
-  const url = anchor.href;
-  try { if (new URL(url).hostname === window.location.hostname) return; } catch { return; }
+function hideHoverCard() {
+  if (hoverCard) hoverCard.style.display = "none";
+}
 
-  activeHoverUrl = url;
+document.addEventListener("mousemove", async (e) => {
+  const anchor = e.target && e.target.closest ? e.target.closest("a[href]") : null;
+  if (!anchor || !anchor.href || !anchor.href.startsWith("http")) {
+    currentHoveredAnchor = null;
+    hideHoverCard();
+    return;
+  }
+
+  const url = anchor.href;
+  try {
+    if (new URL(url).hostname === window.location.hostname) {
+      hideHoverCard();
+      return;
+    }
+  } catch { return; }
+
+  currentHoveredAnchor = anchor;
   anchor.removeAttribute("title");
 
-  // Show instantly using zero-delay check if risky (doesn't wait for Render cold start)
   const immediate = scanCache.get(url) || instantLocalCheck(url);
   if (isRisky(immediate)) {
     showRiskHoverCard(e.clientX, e.clientY, immediate);
+  } else {
+    hideHoverCard();
   }
 
-  // Sync with live Render ML backend in background
-  const live = await scanUrlViaBackground(url);
-  if (activeHoverUrl === url && isRisky(live)) {
-    showRiskHoverCard(e.clientX, e.clientY, live);
-  }
-}, true);
-
-document.addEventListener("mouseout", (e) => {
-  if (e.target.closest("a[href]")) {
-    activeHoverUrl = null;
-    if (hoverCard) hoverCard.style.display = "none";
+  if (!scanCache.has(url)) {
+    const live = await scanUrlViaBackground(url);
+    if (currentHoveredAnchor === anchor && isRisky(live)) {
+      showRiskHoverCard(e.clientX, e.clientY, live);
+    }
   }
 }, true);
 
-// 3. Instant Pre-Click Block (Zero-Delay Interception)
+// 3. Instant Pre-Click Block
 document.addEventListener("click", (e) => {
-  const anchor = e.target.closest("a[href]");
-  if (!anchor || !anchor.href.startsWith("http")) return;
+  const anchor = e.target && e.target.closest ? e.target.closest("a[href]") : null;
+  if (!anchor || !anchor.href || !anchor.href.startsWith("http")) return;
   if (e.ctrlKey || e.metaKey || e.shiftKey) return;
   const url = anchor.href;
   try { if (new URL(url).hostname === window.location.hostname) return; } catch { return; }
@@ -115,7 +129,7 @@ document.addEventListener("click", (e) => {
   if (isRisky(check)) {
     e.preventDefault();
     e.stopImmediatePropagation();
-    if (hoverCard) hoverCard.style.display = "none";
+    hideHoverCard();
     showWarningOverlay(url, check, false);
   }
 }, true);

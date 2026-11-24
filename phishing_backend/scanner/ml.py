@@ -210,9 +210,10 @@ def scan_url(url):
         if not (is_established and feats['has_https']):
             red_flags.append("Contains suspicious keyword (login/secure/verify/account/bank...)")
 
-    if feats['url_length'] > 75 and not is_trusted_domain(hostname):
-        # Long marketing/UTM URLs on established (>1 yr) HTTPS domains are normal
-        if not (is_established and feats['has_https']):
+    base_url_len = len(url.split('?')[0])
+    is_marketing_query = any(k in parsed.query.lower() for k in ['utm_', 'ref=', 'eid=', 'gclid=', 'fbclid='])
+    if base_url_len > 75 and not is_trusted_domain(hostname):
+        if not (is_established and feats['has_https']) and not (feats['has_https'] and is_marketing_query):
             red_flags.append("Very long URL")
 
     if age_days is not None:
