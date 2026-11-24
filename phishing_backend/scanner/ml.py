@@ -193,6 +193,10 @@ def scan_url(url):
     age_days, creation_date_str = get_domain_age_info(hostname)
     is_established = (age_days is not None and age_days > 365)
 
+    # Measure URL length WITHOUT marketing query params (utm_, ref, eid, gclid, fbclid)
+    base_url_len = len(url.split('?')[0])
+    is_marketing_query = any(k in parsed.query.lower() for k in ['utm_', 'ref=', 'eid=', 'gclid=', 'fbclid='])
+
     red_flags = []
     if feats['has_ip']:
         red_flags.append("Uses an IP address instead of a domain name")
@@ -205,13 +209,10 @@ def scan_url(url):
     if feats['num_subdomains'] >= 3:
         red_flags.append("Unusually many subdomains")
 
-    # Context-aware keyword & length flags (avoid false positives on established HTTPS domains)
     if feats['has_suspicious_word'] and not is_trusted_domain(hostname):
         if not (is_established and feats['has_https']):
             red_flags.append("Contains suspicious keyword (login/secure/verify/account/bank...)")
 
-    base_url_len = len(url.split('?')[0])
-    is_marketing_query = any(k in parsed.query.lower() for k in ['utm_', 'ref=', 'eid=', 'gclid=', 'fbclid='])
     if base_url_len > 75 and not is_trusted_domain(hostname):
         if not (is_established and feats['has_https']) and not (feats['has_https'] and is_marketing_query):
             red_flags.append("Very long URL")
@@ -224,19 +225,18 @@ def scan_url(url):
             red_flags.append(f"Recently registered domain ({age_days} days old, created {creation_date_str})")
             prob = max(prob, 0.55)
         elif is_established:
-            prob *= 0.45
+            prob *= 0.35
 
     if is_trusted_domain(hostname) and not feats['num_at']:
-        prob = min(prob * 0.30, 0.18)
+        prob = min(prob * 0.25, 0.16)
     elif not red_flags:
-        # Established or clean URL with no genuine red flags -> Legitimate
-        prob = min(prob * 0.25, 0.24)
+        # No genuine red flags -> Legitimate (even if raw ML model reacted to UTM query params)
+        prob = min(prob * 0.22, 0.22)
     elif is_established and not feats['has_ip'] and not feats['num_at']:
-        # Established (>1 yr) domain using HTTP or login path -> warn as Suspicious, never Phishing
-        prob = min(max(prob, 0.45), 0.58)
+        # Established (>1 yr) domain using HTTP or login path -> Suspicious warning, never Phishing
+        prob = min(max(prob, 0.45), 0.56)
     elif len(red_flags) == 1 and prob > 0.68:
-        # Single weak signal without newly registered domain -> cap at Suspicious
-        prob = min(prob, 0.58)
+        prob = min(prob, 0.56)
 
     prob = round(min(max(prob, 0.01), 0.99), 4)
     res = {

@@ -22,7 +22,6 @@ function instantLocalCheck(urlStr) {
 function scanUrlViaBackground(urlStr) {
   if (!urlStr || !urlStr.startsWith("http")) return Promise.resolve(null);
   if (scanCache.has(urlStr)) return Promise.resolve(scanCache.get(urlStr));
-
   return new Promise((resolve) => {
     try {
       chrome.runtime.sendMessage({ type: "THREATLENS_SCAN_URL", url: urlStr }, (res) => {
@@ -48,75 +47,74 @@ function isRisky(res) {
 })();
 
 let hoverCard = null;
-let currentHoveredAnchor = null;
+let activeUrl = null;
 
-function ensureHoverCard() {
+function renderHoverCard(x, y, result) {
   if (!hoverCard || !document.documentElement.contains(hoverCard)) {
     hoverCard = document.createElement("div");
-    hoverCard.style.cssText = "position:fixed;z-index:2147483647;pointer-events:none;max-width:300px;background:#0f172a;color:#f8fafc;padding:10px 12px;border-radius:10px;font-family:system-ui,sans-serif;box-shadow:0 12px 28px rgba(0,0,0,0.75);display:none;";
+    hoverCard.style.cssText = "position:fixed;z-index:2147483647;pointer-events:none;max-width:300px;background:#0f172a;color:#f8fafc;padding:10px 12px;border-radius:10px;font-family:system-ui,sans-serif;box-shadow:0 12px 28px rgba(0,0,0,0.8);";
     document.documentElement.appendChild(hoverCard);
   }
-  return hoverCard;
-}
-
-function showRiskHoverCard(x, y, result) {
-  const card = ensureHoverCard();
   const isHigh = result.label === "phishing" || result.score >= 70;
   const accent = isHigh ? "#ef4444" : "#f59e0b";
   const reasonsHtml = result.reasons.length
     ? `<ul style="margin:6px 0 0;padding-left:15px;font-size:11px;color:#cbd5e1;line-height:1.4;">${result.reasons.map(r => `<li>${r}</li>`).join("")}</ul>`
     : `<div style="margin-top:4px;font-size:11px;color:#cbd5e1;">Suspicious URL indicators detected</div>`;
 
-  card.style.border = `2px solid ${accent}`;
-  card.style.left = Math.min(x + 14, window.innerWidth - 320) + "px";
-  card.style.top = Math.max(10, Math.min(y - 85, window.innerHeight - 130)) + "px";
-  card.style.display = "block";
-  card.innerHTML = `
+  hoverCard.style.border = `2px solid ${accent}`;
+  hoverCard.style.left = Math.min(x + 14, window.innerWidth - 320) + "px";
+  hoverCard.style.top = Math.max(10, Math.min(y - 85, window.innerHeight - 130)) + "px";
+  hoverCard.style.display = "block";
+  hoverCard.innerHTML = `
     <div style="font-size:11px;font-weight:800;color:${accent};">⚠️ THREATLENS ${result.label.toUpperCase()} · ${result.score}/100</div>
     ${reasonsHtml}
   `;
 }
 
-function hideHoverCard() {
-  if (hoverCard) hoverCard.style.display = "none";
+function findAnchor(target) {
+  if (!target) return null;
+  const el = target.nodeType === 3 ? target.parentElement : target;
+  return el && el.closest ? el.closest("a[href]") : null;
 }
 
-document.addEventListener("mousemove", async (e) => {
-  const anchor = e.target && e.target.closest ? e.target.closest("a[href]") : null;
+document.addEventListener("pointermove", (e) => {
+  const anchor = findAnchor(e.target);
   if (!anchor || !anchor.href || !anchor.href.startsWith("http")) {
-    currentHoveredAnchor = null;
-    hideHoverCard();
+    activeUrl = null;
+    if (hoverCard) hoverCard.style.display = "none";
     return;
   }
-
   const url = anchor.href;
   try {
     if (new URL(url).hostname === window.location.hostname) {
-      hideHoverCard();
+      activeUrl = null;
+      if (hoverCard) hoverCard.style.display = "none";
       return;
     }
   } catch { return; }
 
-  currentHoveredAnchor = anchor;
   anchor.removeAttribute("title");
+  const isNewHover = activeUrl !== url;
+  activeUrl = url;
 
-  const immediate = scanCache.get(url) || instantLocalCheck(url);
-  if (isRisky(immediate)) {
-    showRiskHoverCard(e.clientX, e.clientY, immediate);
-  } else {
-    hideHoverCard();
+  const current = scanCache.get(url) || instantLocalCheck(url);
+  if (isRisky(current)) {
+    renderHoverCard(e.clientX, e.clientY, current);
+  } else if (hoverCard) {
+    hoverCard.style.display = "none";
   }
 
-  if (!scanCache.has(url)) {
-    const live = await scanUrlViaBackground(url);
-    if (currentHoveredAnchor === anchor && isRisky(live)) {
-      showRiskHoverCard(e.clientX, e.clientY, live);
-    }
+  if (isNewHover && !scanCache.has(url)) {
+    scanUrlViaBackground(url).then((live) => {
+      if (activeUrl === url && isRisky(live)) {
+        renderHoverCard(e.clientX, e.clientY, live);
+      }
+    });
   }
 }, true);
 
 document.addEventListener("click", (e) => {
-  const anchor = e.target && e.target.closest ? e.target.closest("a[href]") : null;
+  const anchor = findAnchor(e.target);
   if (!anchor || !anchor.href || !anchor.href.startsWith("http")) return;
   if (e.ctrlKey || e.metaKey || e.shiftKey) return;
   const url = anchor.href;
@@ -126,7 +124,7 @@ document.addEventListener("click", (e) => {
   if (isRisky(check)) {
     e.preventDefault();
     e.stopImmediatePropagation();
-    hideHoverCard();
+    if (hoverCard) hoverCard.style.display = "none";
     showWarningOverlay(url, check, false);
   }
 }, true);
