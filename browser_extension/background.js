@@ -190,3 +190,30 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
     }
   } catch (_) {}
 });
+
+// --- Relay URL Scan Requests from Content Scripts (Bypasses WhatsApp/Webmail CSP) ---
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+  if (msg && msg.type === "THREATLENS_SCAN_URL" && msg.url) {
+    (async () => {
+      try {
+        const stored = await chrome.storage.local.get(["apiEndpoint"]);
+        const base = (stored.apiEndpoint || "https://threatlens-backend-fzz3.onrender.com/api").replace(/\/+$/, "");
+        const res = await fetch(`${base}/scan/`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ url: msg.url })
+        });
+        if (!res.ok) { sendResponse(null); return; }
+        const data = await res.json();
+        sendResponse({
+          score: Math.round(data.risk_score || 0),
+          label: (data.label || "legitimate").toLowerCase(),
+          reasons: (data.red_flags || []).slice(0, 3)
+        });
+      } catch {
+        sendResponse(null);
+      }
+    })();
+    return true;
+  }
+});
