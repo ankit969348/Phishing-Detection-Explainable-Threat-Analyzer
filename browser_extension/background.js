@@ -159,3 +159,34 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     return true;
   }
 });
+
+// --- System Toast Notification for High-Risk / Suspicious Tabs ---
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
+  if (changeInfo.status !== "loading" || !tab.url || !tab.url.startsWith("http")) return;
+  try {
+    const host = new URL(tab.url).hostname;
+    if (["google.com", "www.google.com", "github.com", "web.whatsapp.com", "phishing-detection-explainable-thre.vercel.app"].includes(host)) return;
+
+    const stored = await chrome.storage.local.get(["apiEndpoint"]);
+    const base = (stored.apiEndpoint || "https://threatlens-backend-fzz3.onrender.com/api").replace(/\/+$/, "");
+    const res = await fetch(`${base}/scan/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ url: tab.url })
+    });
+    if (!res.ok) return;
+    const data = await res.json();
+    const score = Math.round(data.risk_score || 0);
+    const label = (data.label || "legitimate").toLowerCase();
+
+    if (label === "phishing" || label === "suspicious" || score >= 40) {
+      const reasons = (data.red_flags || []).slice(0, 2).join(" • ") || "Suspicious URL indicators detected";
+      chrome.notifications.create(`tl-alert-${tabId}-${Date.now()}`, {
+        type: "basic",
+        iconUrl: "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+        title: `ThreatLens: ${label.toUpperCase()} (${score}/100)`,
+        message: reasons
+      });
+    }
+  } catch (_) {}
+});
