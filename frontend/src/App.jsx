@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react'
 import {
-  Activity, AlertTriangle, ArrowUpRight, BarChart3, Bell,
-  CheckCircle2, ChevronRight, Clock3, FileText, Globe,
-  LayoutDashboard, LoaderCircle, LogOut, Mail, Menu, Search, Lock,
-  Shield, ShieldAlert, ShieldCheck, Trash2, X
+  Activity, AlertTriangle, ArrowLeft, ArrowUpRight, BarChart3, Bell,
+  Check, CheckCircle2, ChevronRight, Clock3, Eye, FileText, Globe,
+  LayoutDashboard, LoaderCircle, Lock, LogOut, Mail, Menu, Search,
+  Shield, ShieldAlert, ShieldCheck, Sparkles, Trash2, X
 } from 'lucide-react'
 import {
   Area, AreaChart, CartesianGrid, ResponsiveContainer,
@@ -12,13 +12,6 @@ import {
 import './App.css'
 
 const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api').replace(/\/$/, '')
-
-
-
-
-
-
-
 
 const riskColor = (label = '') => {
   const value = label.toLowerCase()
@@ -29,7 +22,6 @@ const riskColor = (label = '') => {
 
 const explainFlag = (flag) => {
   const value = flag.toLowerCase()
-
   if (value.includes('urgency/pressure')) {
     return {
       title: 'Urgency and pressure language',
@@ -38,7 +30,6 @@ const explainFlag = (flag) => {
       action: 'Verify the request through the organization’s official website or app. Do not follow unexpected links.'
     }
   }
-
   if (value.includes('does not use https')) {
     return {
       title: 'HTTPS protection not detected',
@@ -47,7 +38,6 @@ const explainFlag = (flag) => {
       action: 'Avoid entering credentials or personal information. Navigate to the official HTTPS website instead.'
     }
   }
-
   if (value.includes('many hyphens')) {
     return {
       title: 'Unusual number of hyphens',
@@ -56,7 +46,6 @@ const explainFlag = (flag) => {
       action: 'Inspect the actual registered domain carefully before opening the website.'
     }
   }
-
   if (value.includes('suspicious keyword')) {
     return {
       title: 'Suspicious URL keywords',
@@ -65,7 +54,6 @@ const explainFlag = (flag) => {
       action: 'Do not enter credentials until you independently verify the website address.'
     }
   }
-
   if (value.includes('ip address')) {
     return {
       title: 'IP address used instead of a domain',
@@ -74,7 +62,6 @@ const explainFlag = (flag) => {
       action: 'Verify the destination independently before visiting it.'
     }
   }
-
   if (value.includes('subdomain')) {
     return {
       title: 'Unusual subdomain structure',
@@ -83,7 +70,6 @@ const explainFlag = (flag) => {
       action: 'Read the registered domain from right to left and verify its ownership.'
     }
   }
-
   if (value.includes('at sign') || value.includes('@')) {
     return {
       title: 'Unusual @ symbol in URL',
@@ -92,7 +78,6 @@ const explainFlag = (flag) => {
       action: 'Do not open the link until you have verified its actual destination.'
     }
   }
-
   if (value.includes('long url')) {
     return {
       title: 'Unusually long URL',
@@ -101,7 +86,6 @@ const explainFlag = (flag) => {
       action: 'Inspect the domain and avoid shortened or unexpected links.'
     }
   }
-
   return {
     title: 'Additional detection indicator',
     explanation: flag,
@@ -109,9 +93,6 @@ const explainFlag = (flag) => {
     action: 'Review the submitted content carefully before interacting with it.'
   }
 }
-
-
-
 
 function App() {
   const [page, setPage] = useState('Overview')
@@ -121,36 +102,41 @@ function App() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [result, setResult] = useState(null)
-
+  const [selectedReport, setSelectedReport] = useState(null)
 
   const [history, setHistory] = useState([])
   const [authPrompt, setAuthPrompt] = useState('')
   const [showNotifications, setShowNotifications] = useState(false)
-
-
+  const [legalModal, setLegalModal] = useState('') // 'terms' | 'privacy' | 'security' | ''
   const [mobileMenu, setMobileMenu] = useState(false)
 
+  // Persistent Notification States (Read & Dismissed)
+  const [readNotifs, setReadNotifs] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('tl-read-notifs') || '[]') } catch { return [] }
+  })
+  const [dismissedNotifs, setDismissedNotifs] = useState(() => {
+    try { return JSON.parse(localStorage.getItem('tl-dismissed-notifs') || '[]') } catch { return [] }
+  })
 
-// Authentication states
-const [token, setToken] = useState(
-  () => localStorage.getItem('threatlens-token') || ''
-)
-const [user, setUser] = useState(null)
-const [authMode, setAuthMode] = useState('login')
-const [showAuth, setShowAuth] = useState(true)
-const [authLoading, setAuthLoading] = useState(false)
-const [authError, setAuthError] = useState('')
-const [authSuccess, setAuthSuccess] = useState('')
+  useEffect(() => {
+    localStorage.setItem('tl-read-notifs', JSON.stringify(readNotifs))
+  }, [readNotifs])
 
-const [authForm, setAuthForm] = useState({
-  username: '',
-  email: '',
-  password: ''
-})
- // django api history
+  useEffect(() => {
+    localStorage.setItem('tl-dismissed-notifs', JSON.stringify(dismissedNotifs))
+  }, [dismissedNotifs])
 
+  // Authentication states
+  const [token, setToken] = useState(() => localStorage.getItem('threatlens-token') || '')
+  const [user, setUser] = useState(null)
+  const [authMode, setAuthMode] = useState('login')
+  const [showAuth, setShowAuth] = useState(true)
+  const [authLoading, setAuthLoading] = useState(false)
+  const [authError, setAuthError] = useState('')
+  const [authSuccess, setAuthSuccess] = useState('')
+  const [authForm, setAuthForm] = useState({ username: '', email: '', password: '' })
 
-const fetchDbHistory = async (authToken) => {
+  const fetchDbHistory = async (authToken) => {
     try {
       const res = await fetch(`${API_BASE_URL}/history/`, {
         headers: { Authorization: `Token ${authToken}` }
@@ -169,36 +155,23 @@ const fetchDbHistory = async (authToken) => {
       setUser(null)
       return
     }
-
     const verifySession = async () => {
       try {
         const response = await fetch(`${API_BASE_URL}/auth/me/`, {
-          headers: {
-            Authorization: `Token ${token}`
-          }
+          headers: { Authorization: `Token ${token}` }
         })
-
-        if (!response.ok) {
-          throw new Error('Session expired')
-        }
-
+        if (!response.ok) throw new Error('Session expired')
         const data = await response.json()
         setUser(data)
         fetchDbHistory(token)
-
-      } catch (error) {
+      } catch {
         localStorage.removeItem('threatlens-token')
         setToken('')
         setUser(null)
       }
     }
-
     verifySession()
   }, [token])
-
-
-
-
 
   const totals = useMemo(() => {
     const counts = { phishing: 0, suspicious: 0, legitimate: 0 }
@@ -215,6 +188,38 @@ const fetchDbHistory = async (authToken) => {
       legitimate: counts.legitimate
     }
   }, [history])
+
+  const alertItems = useMemo(() => {
+    return history
+      .filter(h =>
+        !dismissedNotifs.includes(String(h.id)) &&
+        Object.values(h.result || {}).some(s =>
+          ['phishing', 'suspicious'].includes((s.label || '').toLowerCase())
+        )
+      )
+      .slice(0, 8)
+  }, [history, dismissedNotifs])
+
+  const unreadAlertCount = useMemo(() => {
+    return alertItems.filter(item => !readNotifs.includes(String(item.id))).length
+  }, [alertItems, readNotifs])
+
+  const markNotifRead = (id, e) => {
+    if (e) e.stopPropagation()
+    const key = String(id)
+    setReadNotifs(prev => (prev.includes(key) ? prev : [...prev, key]))
+  }
+
+  const dismissNotif = (id, e) => {
+    if (e) e.stopPropagation()
+    const key = String(id)
+    setDismissedNotifs(prev => (prev.includes(key) ? prev : [...prev, key]))
+  }
+
+  const markAllAlertsRead = () => {
+    const allIds = alertItems.map(i => String(i.id))
+    setReadNotifs(prev => Array.from(new Set([...prev, ...allIds])))
+  }
 
   const chartData = useMemo(() => {
     const days = []
@@ -242,105 +247,74 @@ const fetchDbHistory = async (authToken) => {
     return days
   }, [history])
 
+  const saveSession = (data) => {
+    localStorage.setItem('threatlens-token', data.token)
+    setToken(data.token)
+    setUser(data.user)
+    setShowAuth(false)
+    setAuthError('')
+    setAuthSuccess(data.message || 'Authentication successful!')
+    setAuthForm({ username: '', email: '', password: '' })
+  }
 
+  const handleAuth = async (event) => {
+    event.preventDefault()
+    setAuthLoading(true)
+    setAuthError('')
+    setAuthSuccess('')
 
-
-
-const saveSession = (data) => {
-  localStorage.setItem('threatlens-token', data.token)
-  setToken(data.token)
-  setUser(data.user)
-  setShowAuth(false)
-  setAuthError('')
-  setAuthSuccess(data.message || 'Authentication successful!')
-  setAuthForm({
-    username: '',
-    email: '',
-    password: ''
-  })
-}
-
-const handleAuth = async (event) => {
-  event.preventDefault()
-
-  setAuthLoading(true)
-  setAuthError('')
-  setAuthSuccess('')
-
-  const endpoint =
-    authMode === 'signup'
+    const endpoint = authMode === 'signup'
       ? `${API_BASE_URL}/auth/signup/`
       : `${API_BASE_URL}/auth/login/`
 
-  const payload =
-    authMode === 'signup'
+    const payload = authMode === 'signup'
       ? authForm
-      : {
-          username: authForm.username,
-          password: authForm.password
-        }
+      : { username: authForm.username, password: authForm.password }
 
-  try {
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify(payload)
-    })
-
-    const data = await response.json()
-
-    if (!response.ok) {
-      throw new Error(
-        Array.isArray(data.error)
-          ? data.error.join(' ')
-          : data.error || 'Authentication failed.'
-      )
-    }
-
-    if (authMode === 'signup') {
-      setAuthMode('login')
-      setAuthSuccess(data.message || 'Account created successfully! Please sign in.')
-      setAuthForm(prev => ({ ...prev, password: '' }))
-    } else {
-      saveSession(data)
-    }
-
-  } catch (error) {
-    setAuthError(error.message)
-  } finally {
-    setAuthLoading(false)
-  }
-}
-
-const handleLogout = async () => {
-  try {
-    if (token) {
-      await fetch(`${API_BASE_URL}/auth/logout/`, {
+    try {
+      const response = await fetch(endpoint, {
         method: 'POST',
-        headers: {
-          Authorization: `Token ${token}`
-        }
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
       })
+      const data = await response.json()
+      if (!response.ok) {
+        throw new Error(Array.isArray(data.error) ? data.error.join(' ') : data.error || 'Authentication failed.')
+      }
+      if (authMode === 'signup') {
+        setAuthMode('login')
+        setAuthSuccess(data.message || 'Account created successfully! Please sign in.')
+        setAuthForm(prev => ({ ...prev, password: '' }))
+      } else {
+        saveSession(data)
+      }
+    } catch (error) {
+      setAuthError(error.message)
+    } finally {
+      setAuthLoading(false)
     }
-  } catch (error) {
-    console.error('Logout request failed:', error)
-  } finally {
+  }
+
+  const handleLogout = async () => {
+    try {
+      if (token) {
+        await fetch(`${API_BASE_URL}/auth/logout/`, {
+          method: 'POST',
+          headers: { Authorization: `Token ${token}` }
+        })
+      }
+    } catch (error) {
+      console.error('Logout request failed:', error)
+    } finally {
       localStorage.removeItem('threatlens-token')
       setToken('')
       setUser(null)
       setHistory([])
       setResult(null)
+      setSelectedReport(null)
       setPage('Overview')
       setAuthSuccess('')
     }
-
-
-
-
-
-
   }
 
   const runScan = async (event) => {
@@ -368,23 +342,16 @@ const handleLogout = async () => {
     try {
       const response = await fetch(`${API_BASE_URL}/scan/`, {
         method: 'POST',
-
-
-       headers: {
-    'Content-Type': 'application/json',
-    ...(token ? { Authorization: `Token ${token}` } : {})
-  },
-  body: JSON.stringify(payload)
-})
-
-
-
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Token ${token}` } : {})
+        },
+        body: JSON.stringify(payload)
+      })
       const data = await response.json()
-
       if (!response.ok) {
         throw new Error(data.error || 'The scan request could not be completed.')
       }
-
       const record = {
         id: `${Date.now()}`,
         timestamp: new Date().toISOString(),
@@ -397,12 +364,11 @@ const handleLogout = async () => {
       setHistory(previous => [record, ...previous].slice(0, 100))
       setPage('Scanner')
     } catch (err) {
-      setError(`${err.message}. Check that the Django server is running on port 8000.`)
+      setError(`${err.message}. Check that the backend server is reachable.`)
     } finally {
       setLoading(false)
     }
   }
-
 
   const clearHistory = async () => {
     if (!user) {
@@ -420,15 +386,16 @@ const handleLogout = async () => {
       }
       setHistory([])
       setResult(null)
+      setSelectedReport(null)
     }
   }
 
   const navItems = [
-    { name: 'Overview', icon: LayoutDashboard },
-    { name: 'Scanner', icon: Search },
-    { name: 'Scan History', icon: Clock3 },
-    { name: 'Reports', icon: FileText },
-    { name: 'About Project', icon: Shield }
+    { name: 'Overview', short: 'Home', icon: LayoutDashboard },
+    { name: 'Scanner', short: 'Scan', icon: Search },
+    { name: 'Scan History', short: 'History', icon: Clock3 },
+    { name: 'Reports', short: 'Reports', icon: FileText },
+    { name: 'About Project', short: 'About', icon: Shield }
   ]
 
   const goTo = (name) => {
@@ -438,11 +405,10 @@ const handleLogout = async () => {
       return
     }
     setPage(name)
+    if (name !== 'Reports') setSelectedReport(null)
     setMobileMenu(false)
     setError('')
   }
-
-
 
   const formatDate = (value) => new Date(value).toLocaleString()
 
@@ -470,150 +436,143 @@ const handleLogout = async () => {
         </div>
       </div>
 
-
-
-
       {(scan.domain || scan.sender_domain || scan.domain_creation_date) && (
         <div
           className="domain-intel-box"
           style={{
-            marginTop: "14px",
-            marginBottom: "14px",
-            padding: "12px 16px",
-            borderRadius: "10px",
-            background: "rgba(15, 23, 42, 0.65)",
-            border: "1px solid rgba(148, 163, 184, 0.18)",
-            display: "flex",
-            flexWrap: "wrap",
-            gap: "18px",
-            alignItems: "center",
-            justifyContent: "space-between",
-            fontSize: "0.88rem",
+            marginTop: '14px',
+            marginBottom: '14px',
+            padding: '12px 16px',
+            borderRadius: '10px',
+            background: 'rgba(15, 23, 42, 0.65)',
+            border: '1px solid rgba(148, 163, 184, 0.18)',
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: '18px',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            fontSize: '0.88rem'
           }}
         >
           <div>
-            <span style={{ color: "#94a3b8", display: "block", fontSize: "0.75rem", textTransform: "uppercase" }}>
+            <span style={{ color: '#94a3b8', display: 'block', fontSize: '0.75rem', textTransform: 'uppercase' }}>
               Verified Domain
             </span>
-            <strong style={{ color: "#e2e8f0" }}>{scan.domain || scan.sender_domain}</strong>
+            <strong style={{ color: '#e2e8f0' }}>{scan.domain || scan.sender_domain}</strong>
           </div>
           <div>
-            <span style={{ color: "#94a3b8", display: "block", fontSize: "0.75rem", textTransform: "uppercase" }}>
+            <span style={{ color: '#94a3b8', display: 'block', fontSize: '0.75rem', textTransform: 'uppercase' }}>
               Creation Date
             </span>
-            <strong style={{ color: scan.domain_creation_date ? "#38bdf8" : "#94a3b8" }}>
-              {scan.domain_creation_date || "Hidden / WHOIS Protected"}
+            <strong style={{ color: scan.domain_creation_date ? '#38bdf8' : '#94a3b8' }}>
+              {scan.domain_creation_date || 'Hidden / WHOIS Protected'}
             </strong>
           </div>
           <div>
-            <span style={{ color: "#94a3b8", display: "block", fontSize: "0.75rem", textTransform: "uppercase" }}>
+            <span style={{ color: '#94a3b8', display: 'block', fontSize: '0.75rem', textTransform: 'uppercase' }}>
               Domain Age
             </span>
-            <strong style={{ color: typeof scan.domain_age_days === "number" ? (scan.domain_age_days < 180 ? "#f59e0b" : "#34d399") : "#94a3b8" }}>
-              {typeof scan.domain_age_days === "number"
+            <strong style={{ color: typeof scan.domain_age_days === 'number' ? (scan.domain_age_days < 180 ? '#f59e0b' : '#34d399') : '#94a3b8' }}>
+              {typeof scan.domain_age_days === 'number'
                 ? `${scan.domain_age_days.toLocaleString()} days (${(scan.domain_age_days / 365).toFixed(1)} yrs)`
-                : "Not publicly listed"}
+                : 'Not publicly listed'}
             </strong>
           </div>
         </div>
       )}
 
-       <div className="explanation-block">
-  <h4>
-    <AlertTriangle size={16} />
-    Explainable Threat Analysis
-  </h4>
+      <div className="explanation-block">
+        <h4>
+          {scan.red_flags?.length ? <AlertTriangle size={16} /> : <ShieldCheck size={16} color="#34d399" />}
+          Explainable Threat Analysis
+        </h4>
 
-  {scan.red_flags?.length ? (
-    <div className="explanation-list">
-      {scan.red_flags.map((flag, index) => {
-        const detail = explainFlag(flag)
-
-        return (
-          <div className="explanation-item" key={index}>
-            <div className="explanation-title">
-              <span className="indicator-number">{index + 1}</span>
-              <strong>{detail.title}</strong>
-              <span className="indicator-status">Detected</span>
-            </div>
-
-            <p>{detail.explanation}</p>
-
-            <div className="explanation-detail">
-              <strong>Why is this risky?</strong>
-              <p>{detail.risk}</p>
-            </div>
-
-            <div className="recommendation-detail">
-              <strong>Recommended action</strong>
-              <p>{detail.action}</p>
-            </div>
+        {scan.red_flags?.length ? (
+          <div className="explanation-list">
+            {scan.red_flags.map((flag, index) => {
+              const detail = explainFlag(flag)
+              return (
+                <div className="explanation-item" key={index}>
+                  <div className="explanation-title">
+                    <span className="indicator-number">{index + 1}</span>
+                    <strong>{detail.title}</strong>
+                    <span className="indicator-status">Detected</span>
+                  </div>
+                  <p>{detail.explanation}</p>
+                  <div className="explanation-detail">
+                    <strong>Why is this risky?</strong>
+                    <p>{detail.risk}</p>
+                  </div>
+                  <div className="recommendation-detail">
+                    <strong>Recommended action</strong>
+                    <p>{detail.action}</p>
+                  </div>
+                </div>
+              )
+            })}
           </div>
-        )
-      })}
-    </div>
-  ) : (
-    <p className="muted">No red flags returned.</p>
-  )}
-</div>
+        ) : (
+          <div style={{ padding: '12px 14px', borderRadius: '10px', background: 'rgba(16, 185, 129, 0.08)', border: '1px solid rgba(16, 185, 129, 0.25)', color: '#a7f3d0', fontSize: '0.9rem' }}>
+            <strong>No suspicious indicators detected.</strong> Domain structure, transport security, and content signals passed ThreatLens safety checks.
+          </div>
+        )}
+      </div>
 
-<div className="risk-interpretation">
-  <h4>Risk Score Interpretation</h4>
+      <div className="risk-interpretation">
+        <h4>Risk Score Interpretation</h4>
+        <p>
+          {Number(scan.risk_score) >= 70
+            ? 'The model classifies this result as phishing. Treat it as potentially malicious.'
+            : Number(scan.risk_score) >= 40
+            ? 'The model classifies this result as suspicious. Additional verification is recommended.'
+            : 'The model classifies this result as legitimate. This does not guarantee safety.'}
+        </p>
+        <div className="threshold-list">
+          <span>0–39: Legitimate</span>
+          <span>40–69: Suspicious</span>
+          <span>70–100: Phishing</span>
+        </div>
+      </div>
 
-  <p>
-    {Number(scan.risk_score) >= 70
-      ? 'The model classifies this result as phishing. Treat it as potentially malicious.'
-      : Number(scan.risk_score) >= 40
-      ? 'The model classifies this result as suspicious. Additional verification is recommended.'
-      : 'The model classifies this result as legitimate. This does not guarantee safety.'}
-  </p>
+      <button
+        className="button secondary no-print"
+        onClick={() => {
+          if (!user) {
+            setAuthPrompt('Sign in or create an account to export and print official PDF reports.')
+            return
+          }
+          window.print()
+        }}
+      >
+        <FileText size={16} /> Export PDF Report
+      </button>
 
-  <div className="threshold-list">
-    <span>0–39: Legitimate</span>
-    <span>40–69: Suspicious</span>
-    <span>70–100: Phishing</span>
-  </div>
-</div>
-
-   
-    <button
-              className="button secondary no-print"
-              onClick={() => {
-                if (!user) {
-                  setAuthPrompt('Sign in or create an account to export and print official PDF reports.')
-                  return
-                }
-                window.print()
-              }}
-            >
-              <FileText size={16} /> Export PDF Report
-            </button>
-
-
-        
-       
       <p className="disclaimer">
         This result is an automated model assessment, not a guarantee that the content is safe or malicious.
       </p>
     </div>
-
-
-
   )
 
-  const renderResult = (record) => {
+  const renderResult = (record, isStandaloneReport = false) => {
     if (!record) return null
     return (
       <section className="results-section">
         <div className="section-heading">
           <div>
-            <span className="eyebrow">SCAN OUTPUT</span>
+            <span className="eyebrow">{isStandaloneReport ? 'OFFICIAL ARCHIVED REPORT' : 'SCAN OUTPUT'}</span>
             <h2>Threat analysis report</h2>
-            <p className="muted">{formatDate(record.timestamp)}</p>
+            <p className="muted">Report ID #{String(record.id).slice(-6)} · {formatDate(record.timestamp)}</p>
           </div>
-          <button className="button secondary" onClick={() => window.print()}>
-            <FileText size={16} /> Print report
-          </button>
+          <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+            {isStandaloneReport && (
+              <button className="button secondary no-print" onClick={() => setSelectedReport(null)}>
+                <ArrowLeft size={16} /> Back to All Reports
+              </button>
+            )}
+            <button className="button primary no-print" onClick={() => window.print()}>
+              <FileText size={16} /> Print / Save PDF
+            </button>
+          </div>
         </div>
         {record.emailPreview && (
           <div className="input-preview">
@@ -649,7 +608,7 @@ const handleLogout = async () => {
       </div>
 
       <div className="stats-grid">
-        <StatCard icon={Activity} title="Total scan records" value={totals.scans} note="Saved in this browser" tone="blue" />
+        <StatCard icon={Activity} title="Total scan records" value={totals.scans} note="Saved in workspace" tone="blue" />
         <StatCard icon={ShieldAlert} title="Phishing detections" value={totals.phishing} note="Model label: phishing" tone="red" />
         <StatCard icon={AlertTriangle} title="Suspicious detections" value={totals.suspicious} note="Requires manual review" tone="amber" />
         <StatCard icon={ShieldCheck} title="Legitimate detections" value={totals.legitimate} note="Model label: legitimate" tone="green" />
@@ -659,36 +618,51 @@ const handleLogout = async () => {
         <div className="panel chart-panel">
           <div className="panel-heading">
             <div>
-              <h3>Scan activity</h3>
-              <p className="muted">Last 7 days, based on saved scan records</p>
+              <h3>Scan &amp; Threat Telemetry</h3>
+              <p className="muted">7-day volume comparison (Total Scans vs. Threats Flagged)</p>
             </div>
-            <span className="subtle-tag">7 DAYS</span>
+            <div style={{ display: 'flex', gap: '12px', alignItems: 'center', fontSize: '0.78rem' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', color: '#60a5fa' }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#60a5fa' }} /> Scans
+              </span>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', color: '#f87171' }}>
+                <span style={{ width: 8, height: 8, borderRadius: '50%', background: '#f87171' }} /> Threats
+              </span>
+            </div>
           </div>
           <div className="chart-wrap">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={chartData}>
+              <AreaChart data={chartData} margin={{ top: 10, right: 12, left: -16, bottom: 0 }}>
                 <defs>
                   <linearGradient id="scanGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0} />
+                    <stop offset="0%" stopColor="#3b82f6" stopOpacity={0.38} />
+                    <stop offset="95%" stopColor="#3b82f6" stopOpacity={0.0} />
+                  </linearGradient>
+                  <linearGradient id="threatGradient" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="0%" stopColor="#ef4444" stopOpacity={0.38} />
+                    <stop offset="95%" stopColor="#ef4444" stopOpacity={0.0} />
                   </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#263448" />
-                <XAxis dataKey="day" stroke="#8190a5" tickLine={false} axisLine={false} />
-                <YAxis allowDecimals={false} stroke="#8190a5" tickLine={false} axisLine={false} />
-                <Tooltip contentStyle={{ background: '#111d2d', border: '1px solid #293b53', borderRadius: 10 }} />
-                <Area type="monotone" dataKey="scans" stroke="#60a5fa" fill="url(#scanGradient)" strokeWidth={2} />
+                <CartesianGrid strokeDasharray="3 3" stroke="#1e293b" vertical={false} />
+                <XAxis dataKey="day" stroke="#94a3b8" tickLine={false} axisLine={false} fontSize={12} />
+                <YAxis allowDecimals={false} stroke="#94a3b8" tickLine={false} axisLine={false} fontSize={12} />
+                <Tooltip
+                  contentStyle={{ background: '#0f172a', border: '1px solid #334155', borderRadius: 12, boxShadow: '0 10px 25px rgba(0,0,0,0.5)' }}
+                  labelStyle={{ color: '#f8fafc', fontWeight: 700, marginBottom: 4 }}
+                />
+                <Area type="monotone" name="Total Scans" dataKey="scans" stroke="#60a5fa" fill="url(#scanGradient)" strokeWidth={2.5} activeDot={{ r: 5 }} />
+                <Area type="monotone" name="Threats Flagged" dataKey="threats" stroke="#f87171" fill="url(#threatGradient)" strokeWidth={2.5} activeDot={{ r: 5 }} />
               </AreaChart>
             </ResponsiveContainer>
           </div>
-          {!history.length && <p className="chart-empty">Your scan activity will appear here after your first scan.</p>}
+          {!history.length && <p className="chart-empty">Your scan telemetry will appear here after your first scan.</p>}
         </div>
 
         <div className="panel distribution-panel">
           <div className="panel-heading">
             <div>
               <h3>Detection summary</h3>
-              <p className="muted">Based on saved scan results</p>
+              <p className="muted">Classification ratio</p>
             </div>
             <BarChart3 size={19} className="muted-icon" />
           </div>
@@ -707,7 +681,7 @@ const handleLogout = async () => {
               </div>
             </div>
           ))}
-          <p className="small-note">Counts are derived from this browser's saved scan history, not from a central server.</p>
+          <p className="small-note">Synchronized with your ThreatLens scanner workspace.</p>
         </div>
       </div>
 
@@ -715,12 +689,15 @@ const handleLogout = async () => {
         <div className="panel-heading">
           <div>
             <h3>Recent scans</h3>
-            <p className="muted">Latest scan records saved on this device</p>
+            <p className="muted">Latest scan records</p>
           </div>
           <button className="text-button" onClick={() => goTo('Scan History')}>View history <ChevronRight size={15} /></button>
         </div>
         {history.length ? (
-          <HistoryTable items={history.slice(0, 5)} onSelect={setResult} onOpen={() => goTo('Scanner')} />
+          <HistoryTable
+            items={history.slice(0, 5)}
+            onSelect={record => { setResult(record); setPage('Scanner') }}
+          />
         ) : (
           <EmptyState icon={Search} title="No scans yet" text="Run your first email or URL scan to populate this dashboard." />
         )}
@@ -734,9 +711,14 @@ const handleLogout = async () => {
         <div>
           <span className="eyebrow">THREAT DETECTION</span>
           <h1>Security scanner</h1>
-          <p className="muted">Submit email content, a URL, or both for analysis by your Django ML API.</p>
+          <p className="muted">Submit email content, a URL, or both for real-time Explainable AI analysis.</p>
         </div>
-        <span className="connection-status"><span /> API route: /api/scan/</span>
+        <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+          <button className="button secondary small-button" onClick={() => goTo('Overview')}>
+            <ArrowLeft size={15} /> Overview
+          </button>
+          <span className="connection-status"><span /> API: /api/scan/</span>
+        </div>
       </div>
 
       <div className="panel scanner-panel">
@@ -749,7 +731,7 @@ const handleLogout = async () => {
           {(scanType === 'email' || scanType === 'both') && (
             <label className="form-field">
               <span>Email content</span>
-              <textarea value={emailText} onChange={e => setEmailText(e.target.value)} placeholder="Paste the email message here. Include sender claims, links and message body where available..." rows={7} />
+              <textarea value={emailText} onChange={e => setEmailText(e.target.value)} placeholder="Paste the email message here. Include sender claims, links and message body where available..." rows={6} />
               <small>Paste the message text. Avoid entering passwords or other sensitive information.</small>
             </label>
           )}
@@ -770,7 +752,7 @@ const handleLogout = async () => {
         </form>
       </div>
 
-      {result ? renderResult(result) : (
+      {result ? renderResult(result, false) : (
         <div className="panel scanner-guidance">
           <div className="guidance-icon"><ShieldCheck size={24} /></div>
           <div>
@@ -788,13 +770,20 @@ const handleLogout = async () => {
         <div>
           <span className="eyebrow">ACTIVITY LOG</span>
           <h1>Scan history</h1>
-          <p className="muted">Review scan records saved locally in this browser.</p>
+          <p className="muted">Review all saved scan records in your workspace.</p>
         </div>
-        <button className="button danger-outline" onClick={clearHistory} disabled={!history.length}><Trash2 size={16} /> Clear history</button>
+        <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+          <button className="button secondary small-button" onClick={() => goTo('Overview')}>
+            <ArrowLeft size={15} /> Back
+          </button>
+          <button className="button danger-outline" onClick={clearHistory} disabled={!history.length}>
+            <Trash2 size={16} /> Clear history
+          </button>
+        </div>
       </div>
       <div className="panel recent-panel">
         {history.length ? (
-          <HistoryTable items={history} onSelect={record => { setResult(record); setPage('Scanner') }} onOpen={() => setPage('Scanner')} />
+          <HistoryTable items={history} onSelect={record => { setResult(record); setPage('Scanner') }} />
         ) : (
           <EmptyState icon={Clock3} title="History is empty" text="Your completed scans will be listed here." />
         )}
@@ -806,38 +795,63 @@ const handleLogout = async () => {
     <>
       <div className="welcome-row">
         <div>
-          <span className="eyebrow">DOCUMENTATION</span>
-          <h1>Scan reports</h1>
-          <p className="muted">Open a saved analysis and print it or save it as PDF.</p>
+          <span className="eyebrow">DOCUMENTATION &amp; AUDIT</span>
+          <h1>{selectedReport ? 'Detailed Security Report' : 'Scan reports'}</h1>
+          <p className="muted">
+            {selectedReport
+              ? 'Dedicated forensic summary view — print or export as PDF.'
+              : 'Select any saved scan below to open its dedicated report view.'}
+          </p>
         </div>
+        <button
+          className="button secondary small-button no-print"
+          onClick={() => (selectedReport ? setSelectedReport(null) : goTo('Overview'))}
+        >
+          <ArrowLeft size={15} /> {selectedReport ? 'All Reports' : 'Back to Overview'}
+        </button>
       </div>
-      <div className="panel recent-panel">
-        {history.length ? (
-          <div className="report-list">
-            {history.map(item => {
-              const labels = Object.values(item.result || {}).map(x => x.label).filter(Boolean)
-              const worst = labels.includes('phishing') ? 'phishing' : labels.includes('suspicious') ? 'suspicious' : 'legitimate'
-              return (
-                <div className="report-row" key={item.id}>
-                  <div className="report-icon"><FileText size={19} /></div>
-                  <div className="report-info">
-                    <strong>Threat analysis report</strong>
-                    <span>{formatDate(item.timestamp)} · {item.type} scan</span>
-                  </div>
-                  <span className={`status-pill ${riskColor(worst)}`}>{worst}</span>
-                  <button className="button secondary small-button" onClick={() => { setResult(item); setPage('Scanner') }}>Open report <ArrowUpRight size={15} /></button>
-                </div>
-              )
-            })}
+
+      {selectedReport ? (
+        renderResult(selectedReport, true)
+      ) : (
+        <>
+          <div className="panel recent-panel">
+            {history.length ? (
+              <div className="report-list">
+                {history.map(item => {
+                  const labels = Object.values(item.result || {}).map(x => x.label).filter(Boolean)
+                  const worst = labels.includes('phishing') ? 'phishing' : labels.includes('suspicious') ? 'suspicious' : 'legitimate'
+                  const preview = item.urlPreview || item.emailPreview || `${item.type} analysis`
+                  return (
+                    <div className="report-row" key={item.id}>
+                      <div className="report-icon"><FileText size={19} /></div>
+                      <div className="report-info" style={{ minWidth: 0, flex: 1 }}>
+                        <strong style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {preview.slice(0, 65)}{preview.length > 65 ? '...' : ''}
+                        </strong>
+                        <span>{formatDate(item.timestamp)} · {item.type.toUpperCase()} scan</span>
+                      </div>
+                      <span className={`status-pill ${riskColor(worst)}`}>{worst}</span>
+                      <button
+                        className="button primary small-button"
+                        onClick={() => setSelectedReport(item)}
+                      >
+                        Open Report <ArrowUpRight size={15} />
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <EmptyState icon={FileText} title="No reports available" text="Reports are generated after you complete a scan." />
+            )}
           </div>
-        ) : (
-          <EmptyState icon={FileText} title="No reports available" text="Reports are generated after you complete a scan." />
-        )}
-      </div>
-      <div className="notice-panel">
-        <AlertTriangle size={18} />
-        <p><strong>Report limitations:</strong> Reports contain the results returned by the current backend API. They do not include forensic evidence, sender authentication checks or external reputation lookups unless those capabilities are added to the backend.</p>
-      </div>
+          <div className="notice-panel">
+            <AlertTriangle size={18} />
+            <p><strong>Report limitations:</strong> Reports contain the results returned by the current backend API. They do not include live sandbox detonation unless configured.</p>
+          </div>
+        </>
+      )}
     </>
   )
 
@@ -849,70 +863,64 @@ const handleLogout = async () => {
           <h1>About the analyzer</h1>
           <p className="muted">Project scope, architecture and current analysis capabilities.</p>
         </div>
+        <button className="button secondary small-button" onClick={() => goTo('Overview')}>
+          <ArrowLeft size={15} /> Back
+        </button>
       </div>
       <div className="about-hero panel">
         <div className="about-mark"><Shield size={32} /></div>
         <div>
           <span className="eyebrow">MACHINE LEARNING · CYBERSECURITY</span>
           <h2>Phishing Detection &amp; Explainable Threat Analyzer</h2>
-          <p className="muted">A web-based application that analyzes submitted email text and URLs using trained machine learning models and returns risk assessments with detection indicators.</p>
+          <p className="muted">A web-based application and browser extension that analyzes email text and URLs using trained machine learning models, domain intelligence, and Explainable AI.</p>
         </div>
       </div>
       <div className="about-grid">
         <InfoCard icon={Mail} title="Email analysis" text="Uses text cleaning, TF-IDF vectorization and a trained classification model to assess submitted email content." />
-        <InfoCard icon={Globe} title="URL analysis" text="Uses URL characteristics such as length, dots, hyphens, subdomains, IP presence, HTTPS and suspicious terms." />
-        <InfoCard icon={Activity} title="Explainable output" text="Displays the model risk score, classification label and heuristic red flags returned by the backend." />
-        <InfoCard icon={ShieldCheck} title="Backend architecture" text="React frontend communicates with a Django REST API through the Vite development proxy." />
+        <InfoCard icon={Globe} title="URL analysis" text="Uses multi-part TLD parsing (.edu.in/.gov.in), WHOIS domain age, HTTPS checks, and lexical ML scoring." />
+        <InfoCard icon={Activity} title="Explainable output" text="Displays the model risk score, classification label and clear threat indicators." />
+        <InfoCard icon={ShieldCheck} title="Security & Privacy" text="Token-authenticated workspace with encrypted transport and zero third-party data resale." />
       </div>
       <div className="panel methodology-panel">
-          <h3>Verified ML Model Evaluation Benchmarks</h3>
-          <p className="muted" style={{marginBottom: "14px"}}>Evaluated on an 80/20 stratified test split across 5,807 email samples and 235,795 URL samples.</p>
-          <div className="about-grid" style={{marginBottom: "18px"}}>
-            <div className="stat-card">
-              <span className="eyebrow">EMAIL CLASSIFIER (RF + TF-IDF)</span>
-              <strong className="stat-value">98.80% Accuracy</strong>
-              <span className="stat-note">Precision: 97.96% · Recall: 97.96% · F1-Score: 97.96%</span>
-              <span className="stat-note">Test Set (1,162): 812 TN, 336 TP, 7 FP, 7 FN</span>
-            </div>
-            <div className="stat-card">
-              <span className="eyebrow">URL CLASSIFIER (RF + LEXICAL)</span>
-              <strong className="stat-value">93.78% Accuracy</strong>
-              <span className="stat-note">Precision: 91.25% · Recall: 98.57% · F1-Score: 94.77%</span>
-              <span className="stat-note">Test Set (47,159): 17,641 TN, 26,583 TP, 2,548 FP, 387 FN</span>
-            </div>
+        <h3>Verified ML Model Evaluation Benchmarks</h3>
+        <p className="muted" style={{ marginBottom: '14px' }}>Evaluated on an 80/20 stratified test split across 5,807 email samples and 235,795 URL samples.</p>
+        <div className="about-grid" style={{ marginBottom: '18px' }}>
+          <div className="stat-card">
+            <span className="eyebrow">EMAIL CLASSIFIER (RF + TF-IDF)</span>
+            <strong className="stat-value">98.80% Accuracy</strong>
+            <span className="stat-note">Precision: 97.96% · Recall: 97.96% · F1-Score: 97.96%</span>
+            <span className="stat-note">Test Set (1,162): 812 TN, 336 TP, 7 FP, 7 FN</span>
           </div>
-          <h3>Current system workflow</h3>
-          <ol>
-            <li>User submits email content, URL or both through the scanner.</li>
-            <li>React sends a POST request to <code>/api/scan/</code>.</li>
-            <li>Django passes the input to the corresponding trained ML model.</li>
-            <li>The backend returns a risk score, label and red-flag indicators.</li>
-            <li>The dashboard displays the result and saves authenticated scan records to PostgreSQL.</li>
-          </ol>
+          <div className="stat-card">
+            <span className="eyebrow">URL CLASSIFIER (RF + LEXICAL)</span>
+            <strong className="stat-value">93.78% Accuracy</strong>
+            <span className="stat-note">Precision: 91.25% · Recall: 98.57% · F1-Score: 94.77%</span>
+            <span className="stat-note">Test Set (47,159): 17,641 TN, 26,583 TP, 2,548 FP, 387 FN</span>
+          </div>
         </div>
+      </div>
     </>
   )
 
-
-
-      if (showAuth) {
-  return (
-    <AuthScreen
-      authMode={authMode}
-      setAuthMode={setAuthMode}
-      authForm={authForm}
-      setAuthForm={setAuthForm}
-      handleAuth={handleAuth}
-      authLoading={authLoading}
-      authError={authError}
-      authSuccess={authSuccess}
-      onGuest={() => setShowAuth(false)}
-    />
-  )
-}
-     
-
-
+  if (showAuth) {
+    return (
+      <>
+        <AuthScreen
+          authMode={authMode}
+          setAuthMode={setAuthMode}
+          authForm={authForm}
+          setAuthForm={setAuthForm}
+          handleAuth={handleAuth}
+          authLoading={authLoading}
+          authError={authError}
+          authSuccess={authSuccess}
+          onGuest={() => setShowAuth(false)}
+          onOpenLegal={(type) => setLegalModal(type)}
+        />
+        <LegalModal type={legalModal} onClose={() => setLegalModal('')} />
+      </>
+    )
+  }
 
   return (
     <div className="app-shell">
@@ -937,104 +945,125 @@ const handleLogout = async () => {
         <div className="sidebar-bottom">
           <div className="system-card">
             <span className="system-dot" />
-            <div><strong>Local analyzer</strong><small>Development environment</small></div>
+            <div><strong>ThreatLens Cloud</strong><small>Security patch active</small></div>
           </div>
-          
 
+          <div className="profile-row">
+            <div className="avatar">
+              {user ? user.username?.charAt(0).toUpperCase() : 'G'}
+            </div>
+            <div className="profile-info">
+              <strong>{user ? user.username : 'Guest Workspace'}</strong>
+              <small>{user ? user.email : 'Guest Access'}</small>
+            </div>
+          </div>
 
-               <div className="profile-row">
-  <div className="avatar">
-    {user ? user.username?.charAt(0).toUpperCase() : 'G'}
-  </div>
-
-  <div className="profile-info">
-    <strong>{user ? user.username : 'Guest Workspace'}</strong>
-    <small>{user ? user.email : 'Guest Access'}</small>
-  </div>
-</div>
-
-{user ? (
-  <button
-    className="sidebar-auth-button"
-    onClick={handleLogout}
-  >
-    <LogOut size={16} />
-    Logout
-  </button>
-) : (
-  <button
-    className="sidebar-auth-button"
-    onClick={() => setShowAuth(true)}
-  >
-    <ShieldCheck size={16} />
-    Sign In / Create Account
-  </button>
-)}
-
-
-
+          {user ? (
+            <button className="sidebar-auth-button" onClick={handleLogout}>
+              <LogOut size={16} /> Logout
+            </button>
+          ) : (
+            <button className="sidebar-auth-button" onClick={() => setShowAuth(true)}>
+              <ShieldCheck size={16} /> Sign In / Create Account
+            </button>
+          )}
         </div>
       </aside>
 
       {mobileMenu && <button className="mobile-overlay" onClick={() => setMobileMenu(false)} aria-label="Close navigation" />}
 
-      <main className="main-area">
+      <main className="main-area" style={{ paddingBottom: '74px' }}>
         <header className="topbar">
           <button className="mobile-menu-button" onClick={() => setMobileMenu(true)}><Menu size={20} /></button>
           <div className="breadcrumb">Workspace <ChevronRight size={14} /> <strong>{page}</strong></div>
           <div className="topbar-right">
             <span className="top-status"><span /> System ready</span>
-           
 
-
-<div className="notif-wrapper">
-                <button
-                  type="button"
-                  className="top-icon-btn"
-                  onClick={() => setShowNotifications(!showNotifications)}
-                  aria-label="Security Alerts"
-                >
-                  <Bell size={18} />
-                  {totals.phishing + totals.suspicious > 0 && (
-                    <span className="notif-badge">{totals.phishing + totals.suspicious}</span>
-                  )}
-                </button>
-                {showNotifications && (
-                  <div className="notif-dropdown">
-                    <div className="notif-header">
-                      <strong>Security Alerts</strong>
-                      <span>{totals.phishing + totals.suspicious} flagged</span>
-                    </div>
-                    {history
-                      .filter(h =>
-                        Object.values(h.result || {}).some(s =>
-                          ['phishing', 'suspicious'].includes((s.label || '').toLowerCase())
-                        )
-                      )
-                      .slice(0, 4)
-                      .map(item => (
-                        <div
-                          key={item.id}
-                          className="notif-item"
-                          onClick={() => {
-                            setResult(item)
-                            setPage('Scanner')
-                            setShowNotifications(false)
-                          }}
-                        >
-                          <strong>{item.type.toUpperCase()} Threat Flagged</strong>
-                          <small>{formatDate(item.timestamp)}</small>
-                        </div>
-                      ))}
-                    {totals.phishing + totals.suspicious === 0 && (
-                      <p className="notif-empty">No phishing or suspicious alerts yet.</p>
+            <div className="notif-wrapper">
+              <button
+                type="button"
+                className="top-icon-btn"
+                onClick={() => setShowNotifications(!showNotifications)}
+                aria-label="Security Alerts"
+              >
+                <Bell size={18} />
+                {unreadAlertCount > 0 && (
+                  <span className="notif-badge">{unreadAlertCount}</span>
+                )}
+              </button>
+              {showNotifications && (
+                <div className="notif-dropdown" style={{ width: '320px', maxWidth: '90vw' }}>
+                  <div className="notif-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <strong>Security Alerts ({unreadAlertCount} new)</strong>
+                    {alertItems.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={markAllAlertsRead}
+                        style={{ background: 'none', border: 'none', color: '#38bdf8', fontSize: '0.75rem', cursor: 'pointer', fontWeight: 600 }}
+                      >
+                        Mark all read
+                      </button>
                     )}
                   </div>
-                )}
-              </div>
-
-
-
+                  {alertItems.map(item => {
+                    const isRead = readNotifs.includes(String(item.id))
+                    return (
+                      <div
+                        key={item.id}
+                        className="notif-item"
+                        style={{
+                          opacity: isRead ? 0.62 : 1,
+                          borderLeft: isRead ? '3px solid transparent' : '3px solid #ef4444',
+                          display: 'flex',
+                          justifyContent: 'space-between',
+                          alignItems: 'center',
+                          gap: '8px'
+                        }}
+                        onClick={() => {
+                          markNotifRead(item.id)
+                          setSelectedReport(item)
+                          setPage('Reports')
+                          setShowNotifications(false)
+                        }}
+                      >
+                        <div style={{ minWidth: 0, flex: 1 }}>
+                          <strong style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                            {!isRead && <span style={{ width: 7, height: 7, borderRadius: '50%', background: '#ef4444', display: 'inline-block' }} />}
+                            {item.type.toUpperCase()} Threat Flagged
+                          </strong>
+                          <small style={{ display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                            {item.urlPreview || item.emailPreview || formatDate(item.timestamp)}
+                          </small>
+                        </div>
+                        <div style={{ display: 'flex', gap: '4px' }}>
+                          {!isRead && (
+                            <button
+                              type="button"
+                              title="Mark as read"
+                              onClick={(e) => markNotifRead(item.id, e)}
+                              style={{ background: 'rgba(56,189,248,0.15)', border: 'none', color: '#38bdf8', borderRadius: 6, padding: '4px 6px', cursor: 'pointer' }}
+                            >
+                              <Check size={13} />
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            title="Dismiss alert"
+                            onClick={(e) => dismissNotif(item.id, e)}
+                            style={{ background: 'rgba(239,68,68,0.15)', border: 'none', color: '#f87171', borderRadius: 6, padding: '4px 6px', cursor: 'pointer' }}
+                          >
+                            <X size={13} />
+                          </button>
+                        </div>
+                      </div>
+                    )
+                  })}
+                  {alertItems.length === 0 && (
+                    <p className="notif-empty">All caught up! No unread security alerts.</p>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
         </header>
 
@@ -1044,52 +1073,144 @@ const handleLogout = async () => {
           {page === 'Scan History' && renderHistory()}
           {page === 'Reports' && renderReports()}
           {page === 'About Project' && renderAbout()}
-          <footer className="app-footer">
+
+          <footer className="app-footer" style={{ flexWrap: 'wrap', gap: '12px' }}>
             <span>ThreatLens · Phishing Detection &amp; Explainable Threat Analyzer</span>
-            <span>For educational and defensive security use</span>
+            <div style={{ display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+              <button type="button" onClick={() => setLegalModal('terms')} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '0.82rem', textDecoration: 'underline' }}>
+                Terms &amp; Conditions
+              </button>
+              <button type="button" onClick={() => setLegalModal('privacy')} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', fontSize: '0.82rem', textDecoration: 'underline' }}>
+                Privacy Policy
+              </button>
+              <button type="button" onClick={() => setLegalModal('security')} style={{ background: 'none', border: 'none', color: '#38bdf8', cursor: 'pointer', fontSize: '0.82rem', textDecoration: 'underline' }}>
+                Security &amp; Compliance
+              </button>
+            </div>
           </footer>
         </div>
       </main>
 
-      
-        {authPrompt && (
-          <div className="modal-backdrop" onClick={() => setAuthPrompt('')}>
-            <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-              <div className="modal-icon"><Lock size={24} /></div>
-              <h3>Registered Feature</h3>
-              <p>{authPrompt}</p>
-              <div className="modal-actions">
-                <button
-                  className="button primary"
-                  onClick={() => {
-                    setAuthPrompt('')
-                    setAuthMode('signup')
-                    setShowAuth(true)
-                  }}
-                >
-                  Create Account
-                </button>
-                <button
-                  className="button secondary"
-                  onClick={() => {
-                    setAuthPrompt('')
-                    setAuthMode('login')
-                    setShowAuth(true)
-                  }}
-                >
-                  Sign In
-                </button>
-              </div>
-              <button className="modal-close-text" onClick={() => setAuthPrompt('')}>
-                Continue as Guest
+      {/* Mobile Sticky Bottom Navigation Bar */}
+      <nav
+        className="mobile-bottom-nav no-print"
+        style={{
+          position: 'fixed',
+          bottom: 0,
+          left: 0,
+          right: 0,
+          zIndex: 900,
+          background: 'rgba(15, 23, 42, 0.96)',
+          backdropFilter: 'blur(12px)',
+          borderTop: '1px solid rgba(148, 163, 184, 0.18)',
+          display: 'none',
+          justifyContent: 'space-around',
+          padding: '6px 4px'
+        }}
+      >
+        {navItems.map(item => {
+          const Icon = item.icon
+          const active = page === item.name
+          return (
+            <button
+              key={item.name}
+              type="button"
+              onClick={() => goTo(item.name)}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: active ? '#38bdf8' : '#94a3b8',
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                gap: '3px',
+                fontSize: '0.7rem',
+                fontWeight: active ? 700 : 500,
+                padding: '4px 8px',
+                cursor: 'pointer'
+              }}
+            >
+              <Icon size={18} />
+              <span>{item.short}</span>
+            </button>
+          )
+        })}
+      </nav>
+
+      {authPrompt && (
+        <div className="modal-backdrop" onClick={() => setAuthPrompt('')}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="modal-icon"><Lock size={24} /></div>
+            <h3>Registered Feature</h3>
+            <p>{authPrompt}</p>
+            <div className="modal-actions">
+              <button className="button primary" onClick={() => { setAuthPrompt(''); setAuthMode('signup'); setShowAuth(true) }}>
+                Create Account
+              </button>
+              <button className="button secondary" onClick={() => { setAuthPrompt(''); setAuthMode('login'); setShowAuth(true) }}>
+                Sign In
               </button>
             </div>
+            <button className="modal-close-text" onClick={() => setAuthPrompt('')}>
+              Continue as Guest
+            </button>
           </div>
-        )}
-      
-     
+        </div>
+      )}
 
+      <LegalModal type={legalModal} onClose={() => setLegalModal('')} />
+    </div>
+  )
+}
 
+function LegalModal({ type, onClose }) {
+  if (!type) return null
+  const content = {
+    terms: {
+      title: 'Terms & Conditions',
+      items: [
+        'ThreatLens is provided for defensive cybersecurity analysis, educational research, and personal phishing verification.',
+        'Automated risk scores and Explainable AI indicators assist human decision-making and do not constitute an absolute legal or financial guarantee.',
+        'Users must not submit unlawful content, private credentials, or attempt automated abuse/scraping of the scanning API.'
+      ]
+    },
+    privacy: {
+      title: 'Privacy Policy & Data Protection',
+      items: [
+        'Zero Data Selling: Submitted emails and URLs are processed solely for threat classification and are never sold or shared with advertisers.',
+        'Guest Mode scans remain transient in your browser session; Registered User scan histories are isolated per account via token authentication.',
+        'Do not paste sensitive passwords, banking PINs, or private OTPs into the scanner input box.'
+      ]
+    },
+    security: {
+      title: 'Security Architecture & Patch Notes',
+      items: [
+        'Transport Security: All API communications enforce HTTPS/TLS encryption with token-based session validation.',
+        'Browser Extension Isolation: Content scripts route scans through a privileged Manifest V3 background service worker to prevent page-level CSP tampering.',
+        'Input & SSRF Hardening: URLs and text payloads are sanitized prior to lexical and WHOIS evaluation.'
+      ]
+    }
+  }[type]
+
+  return (
+    <div className="modal-backdrop" onClick={onClose} style={{ zIndex: 2000 }}>
+      <div className="modal-card" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '520px', textAlign: 'left' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <ShieldCheck size={22} color="#38bdf8" />
+            <h3 style={{ margin: 0 }}>{content.title}</h3>
+          </div>
+          <button type="button" onClick={onClose} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer' }}>
+            <X size={20} />
+          </button>
+        </div>
+        <ul style={{ paddingLeft: '18px', color: '#cbd5e1', fontSize: '0.9rem', lineHeight: 1.6, margin: '0 0 18px' }}>
+          {content.items.map((pt, idx) => <li key={idx} style={{ marginBottom: '8px' }}>{pt}</li>)}
+        </ul>
+        <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+          <button type="button" className="button primary" onClick={onClose}>Acknowledge &amp; Close</button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -1153,9 +1274,7 @@ function InfoCard({ icon: Icon, title, text }) {
   )
 }
 
-
-
-  function AuthScreen({
+function AuthScreen({
   authMode,
   setAuthMode,
   authForm,
@@ -1164,7 +1283,8 @@ function InfoCard({ icon: Icon, title, text }) {
   authLoading,
   authError,
   authSuccess,
-  onGuest
+  onGuest,
+  onOpenLegal
 }) {
   const isSignup = authMode === 'signup'
   const isReset = authMode === 'reset'
@@ -1178,8 +1298,6 @@ function InfoCard({ icon: Icon, title, text }) {
   const [resetMsg, setResetMsg] = useState('')
   const [localError, setLocalError] = useState('')
   const [localSuccess, setLocalSuccess] = useState('')
-
-  const apiBase = API_BASE_URL
 
   useEffect(() => {
     if (resendTimer <= 0) return
@@ -1215,7 +1333,7 @@ function InfoCard({ icon: Icon, title, text }) {
     }
     setResetBusy(true); setResetErr(''); setResetMsg('')
     try {
-      const res = await fetch(`${apiBase}/auth/send-reset-otp/`, {
+      const res = await fetch(`${API_BASE_URL}/auth/send-reset-otp/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: resetEmail.trim() })
@@ -1232,10 +1350,7 @@ function InfoCard({ icon: Icon, title, text }) {
     }
   }
 
-  const handleSendOtp = (e) => {
-    e.preventDefault()
-    requestOtpCode()
-  }
+  const handleSendOtp = (e) => { e.preventDefault(); requestOtpCode() }
 
   const handleConfirmReset = async (e) => {
     e.preventDefault()
@@ -1250,7 +1365,7 @@ function InfoCard({ icon: Icon, title, text }) {
     }
     setResetBusy(true)
     try {
-      const res = await fetch(`${apiBase}/auth/reset-password/`, {
+      const res = await fetch(`${API_BASE_URL}/auth/reset-password/`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -1279,298 +1394,202 @@ function InfoCard({ icon: Icon, title, text }) {
   const displaySuccess = localSuccess || authSuccess
 
   return (
-    <div className="auth-page">
-      <div className="auth-card">
-
-        <div className="auth-brand">
-          <div className="auth-logo">
-            <ShieldCheck size={27} />
+    <div className="auth-page auth-split-layout">
+      {/* Left Brand & Live Security Showcase (Automatically visible on Desktop/Laptop, hidden on Mobile) */}
+      <div className="auth-showcase-panel">
+        <div className="showcase-inner">
+          <div className="auth-brand" style={{ marginBottom: '28px' }}>
+            <div className="auth-logo" style={{ width: 52, height: 52 }}>
+              <ShieldCheck size={30} />
+            </div>
+            <div>
+              <h2 style={{ fontSize: '1.55rem' }}>ThreatLens</h2>
+              <span>EXPLAINABLE THREAT ANALYZER</span>
+            </div>
           </div>
-          <div>
-            <h2>ThreatLens</h2>
-            <span>SECURITY ANALYZER</span>
-          </div>
-        </div>
 
-        <div className="auth-heading">
-          <span className="eyebrow">SECURE WORKSPACE</span>
-          <h1>{isReset ? 'Reset your password' : isSignup ? 'Create your account' : 'Welcome back'}</h1>
-          <p>
-            {isReset
-              ? 'Verify your registered email with a 6-digit OTP to set a new password.'
-              : isSignup
-                ? 'Create an account to manage your security scans.'
-                : 'Sign in to access your security workspace.'}
+          <span className="eyebrow" style={{ display: 'inline-flex', alignItems: 'center', gap: '6px' }}>
+            <Sparkles size={14} /> AI-POWERED CYBER DEFENSE
+          </span>
+          <h1 style={{ fontSize: '2.15rem', lineHeight: 1.2, margin: '10px 0 14px', color: '#f8fafc' }}>
+            Detect Phishing Before It Reaches Your Credentials.
+          </h1>
+          <p style={{ color: '#94a3b8', fontSize: '0.98rem', lineHeight: 1.6, marginBottom: '26px' }}>
+            Real-time machine learning inspection for suspicious emails, deceptive URLs, and live browser protection with transparent risk reasoning.
           </p>
-        </div>
 
-        {!isReset && (
-          <div className="auth-tabs">
-            <button
-              type="button"
-              className={!isSignup ? 'active' : ''}
-              onClick={() => { setLocalError(''); setLocalSuccess(''); setAuthMode('login') }}
-            >
-              Login
-            </button>
-
-            <button
-              type="button"
-              className={isSignup ? 'active' : ''}
-              onClick={() => { setLocalError(''); setLocalSuccess(''); setAuthMode('signup') }}
-            >
-              Sign Up
-            </button>
+          <div className="showcase-metrics">
+            <div className="showcase-metric-card">
+              <strong>98.8%</strong>
+              <span>Email Detection Accuracy</span>
+            </div>
+            <div className="showcase-metric-card">
+              <strong>&lt; 50ms</strong>
+              <span>Zero-Delay Link Hover Guard</span>
+            </div>
+            <div className="showcase-metric-card">
+              <strong>WHOIS + ML</strong>
+              <span>Domain Age &amp; Lexical Audit</span>
+            </div>
           </div>
-        )}
 
-        {isReset ? (
-          <form onSubmit={otpSent ? handleConfirmReset : handleSendOtp} className="auth-form" noValidate>
-            <label className="form-field">
-              <span>Registered Email</span>
-              <input
-                type="email"
-                value={resetEmail}
-                onChange={e => setResetEmail(e.target.value)}
-                placeholder="Enter your registered email"
-                disabled={otpSent}
-              />
-            </label>
+          <div className="showcase-preview-box">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+              <span style={{ fontSize: '0.76rem', fontWeight: 700, color: '#38bdf8' }}>LIVE EXPLAINABLE AI ENGINE</span>
+              <span style={{ fontSize: '0.72rem', background: 'rgba(16,185,129,0.16)', color: '#34d399', padding: '2px 8px', borderRadius: 99 }}>ACTIVE</span>
+            </div>
+            <p style={{ margin: 0, fontSize: '0.84rem', color: '#cbd5e1', lineHeight: 1.5 }}>
+              Protects webmail, WhatsApp Web, and direct links against credential harvesting, spoofed domains, and unencrypted login traps.
+            </p>
+          </div>
+        </div>
+      </div>
 
-            {otpSent && (
-              <>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem', marginTop: '-4px' }}>
-                  <span className="muted">
-                    {resendTimer > 0 ? `Resend OTP in ${resendTimer}s` : 'Did not receive code?'}
-                  </span>
-                  <button
-                    type="button"
-                    className="auth-link"
-                    style={{ margin: 0, opacity: resendTimer > 0 ? 0.5 : 1, cursor: resendTimer > 0 ? 'not-allowed' : 'pointer' }}
-                    disabled={resendTimer > 0 || resetBusy}
-                    onClick={requestOtpCode}
-                  >
-                    {resendTimer > 0 ? `Wait ${resendTimer}s` : 'Resend OTP'}
-                  </button>
-                </div>
+      {/* Right Authentication Card */}
+      <div className="auth-form-column">
+        <div className="auth-card">
+          <div className="auth-brand mobile-only-brand">
+            <div className="auth-logo"><ShieldCheck size={27} /></div>
+            <div><h2>ThreatLens</h2><span>SECURITY ANALYZER</span></div>
+          </div>
 
-                <label className="form-field">
-                  <span>6-Digit OTP</span>
-                  <input
-                    type="text"
-                    maxLength={6}
-                    value={resetOtp}
-                    onChange={e => setResetOtp(e.target.value.replace(/\D/g, ''))}
-                    placeholder="Enter 6-digit code"
-                  />
-                </label>
+          <div className="auth-heading">
+            <span className="eyebrow">SECURE WORKSPACE</span>
+            <h1>{isReset ? 'Reset your password' : isSignup ? 'Create your account' : 'Welcome back'}</h1>
+            <p>
+              {isReset
+                ? 'Verify your registered email with a 6-digit OTP to set a new password.'
+                : isSignup
+                  ? 'Create an account to manage your security scans & PDF reports.'
+                  : 'Sign in to access your security workspace.'}
+            </p>
+          </div>
 
-                <label className="form-field">
-                  <span>New Password</span>
-                  <input
-                    type="password"
-                    value={resetNewPassword}
-                    onChange={e => setResetNewPassword(e.target.value)}
-                    placeholder="Enter strong new password"
-                  />
-                </label>
-              </>
-            )}
-
-            {resetErr && (
-              <div className="error-message">
-                <AlertTriangle size={16} />
-                {resetErr}
-              </div>
-            )}
-
-            {resetMsg && (
-              <div className="auth-success">
-                <CheckCircle2 size={16} />
-                {resetMsg}
-              </div>
-            )}
-
-            <button
-              className="button primary auth-submit"
-              type="submit"
-              disabled={resetBusy}
-            >
-              {resetBusy ? 'Please wait...' : otpSent ? 'Verify OTP & Reset Password' : 'Send 6-Digit OTP'}
-            </button>
-
-            <button
-              type="button"
-              className="auth-link"
-              onClick={() => {
-                setOtpSent(false); setResetErr(''); setResetMsg(''); setResendTimer(0)
-                setAuthMode('login')
-              }}
-            >
-              Back to Sign In
-            </button>
-          </form>
-        ) : (
-          <>
-            <form onSubmit={onValidatedAuthSubmit} className="auth-form" noValidate>
-              <label className="form-field">
-                <span>Username</span>
-                <input
-                  type="text"
-                  value={authForm.username}
-                  onChange={e => {
-                    setLocalError('')
-                    setAuthForm({ ...authForm, username: e.target.value })
-                  }}
-                  placeholder="Enter username"
-                />
-              </label>
-
-              {isSignup && (
-                <label className="form-field">
-                  <span>Email address</span>
-                  <input
-                    type="email"
-                    value={authForm.email}
-                    onChange={e => {
-                      setLocalError('')
-                      setAuthForm({ ...authForm, email: e.target.value })
-                    }}
-                    placeholder="Enter email address"
-                  />
-                </label>
-              )}
-
-              <label className="form-field">
-                <span>Password</span>
-                <input
-                  type="password"
-                  value={authForm.password}
-                  onChange={e => {
-                    setLocalError('')
-                    setAuthForm({ ...authForm, password: e.target.value })
-                  }}
-                  placeholder="Enter password"
-                />
-              </label>
-
-              {displayError && (
-                <div className="error-message">
-                  <AlertTriangle size={16} />
-                  {displayError}
-                </div>
-              )}
-
-              {displaySuccess && (
-                <div className="auth-success">
-                  <CheckCircle2 size={16} />
-                  {displaySuccess}
-                </div>
-              )}
-
+          {!isReset && (
+            <div className="auth-tabs">
               <button
-                className="button primary auth-submit"
-                type="submit"
-                disabled={authLoading}
+                type="button"
+                className={!isSignup ? 'active' : ''}
+                onClick={() => { setLocalError(''); setLocalSuccess(''); setAuthMode('login') }}
               >
-                {authLoading
-                  ? 'Please wait...'
-                  : isSignup
-                    ? 'Create Account'
-                    : 'Sign In'}
+                Login
               </button>
-            </form>
+              <button
+                type="button"
+                className={isSignup ? 'active' : ''}
+                onClick={() => { setLocalError(''); setLocalSuccess(''); setAuthMode('signup') }}
+              >
+                Sign Up
+              </button>
+            </div>
+          )}
 
-            {!isSignup && (
+          {isReset ? (
+            <form onSubmit={otpSent ? handleConfirmReset : handleSendOtp} className="auth-form" noValidate>
+              <label className="form-field">
+                <span>Registered Email</span>
+                <input type="email" value={resetEmail} onChange={e => setResetEmail(e.target.value)} placeholder="Enter your registered email" disabled={otpSent} />
+              </label>
+
+              {otpSent && (
+                <>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.85rem', marginTop: '-4px' }}>
+                    <span className="muted">{resendTimer > 0 ? `Resend OTP in ${resendTimer}s` : 'Did not receive code?'}</span>
+                    <button
+                      type="button"
+                      className="auth-link"
+                      style={{ margin: 0, opacity: resendTimer > 0 ? 0.5 : 1, cursor: resendTimer > 0 ? 'not-allowed' : 'pointer' }}
+                      disabled={resendTimer > 0 || resetBusy}
+                      onClick={requestOtpCode}
+                    >
+                      {resendTimer > 0 ? `Wait ${resendTimer}s` : 'Resend OTP'}
+                    </button>
+                  </div>
+                  <label className="form-field">
+                    <span>6-Digit OTP</span>
+                    <input type="text" maxLength={6} value={resetOtp} onChange={e => setResetOtp(e.target.value.replace(/\D/g, ''))} placeholder="Enter 6-digit code" />
+                  </label>
+                  <label className="form-field">
+                    <span>New Password</span>
+                    <input type="password" value={resetNewPassword} onChange={e => setResetNewPassword(e.target.value)} placeholder="Enter strong new password" />
+                  </label>
+                </>
+              )}
+
+              {resetErr && <div className="error-message"><AlertTriangle size={16} /> {resetErr}</div>}
+              {resetMsg && <div className="auth-success"><CheckCircle2 size={16} /> {resetMsg}</div>}
+
+              <button className="button primary auth-submit" type="submit" disabled={resetBusy}>
+                {resetBusy ? 'Please wait...' : otpSent ? 'Verify OTP & Reset Password' : 'Send 6-Digit OTP'}
+              </button>
               <button
                 type="button"
                 className="auth-link"
-                onClick={() => {
-                  setResetErr(''); setResetMsg(''); setOtpSent(false); setResendTimer(0)
-                  setLocalError(''); setLocalSuccess('')
-                  setAuthMode('reset')
-                }}
+                onClick={() => { setOtpSent(false); setResetErr(''); setResetMsg(''); setResendTimer(0); setAuthMode('login') }}
               >
-                Forgot password?
+                Back to Sign In
               </button>
-            )}
-          </>
-        )}
+            </form>
+          ) : (
+            <>
+              <form onSubmit={onValidatedAuthSubmit} className="auth-form" noValidate>
+                <label className="form-field">
+                  <span>Username</span>
+                  <input type="text" value={authForm.username} onChange={e => { setLocalError(''); setAuthForm({ ...authForm, username: e.target.value }) }} placeholder="Enter username" />
+                </label>
 
-        <div className="auth-divider">
-          <span>OR</span>
+                {isSignup && (
+                  <label className="form-field">
+                    <span>Email address</span>
+                    <input type="email" value={authForm.email} onChange={e => { setLocalError(''); setAuthForm({ ...authForm, email: e.target.value }) }} placeholder="Enter email address" />
+                  </label>
+                )}
+
+                <label className="form-field">
+                  <span>Password</span>
+                  <input type="password" value={authForm.password} onChange={e => { setLocalError(''); setAuthForm({ ...authForm, password: e.target.value }) }} placeholder="Enter password" />
+                </label>
+
+                {displayError && <div className="error-message"><AlertTriangle size={16} /> {displayError}</div>}
+                {displaySuccess && <div className="auth-success"><CheckCircle2 size={16} /> {displaySuccess}</div>}
+
+                <button className="button primary auth-submit" type="submit" disabled={authLoading}>
+                  {authLoading ? 'Please wait...' : isSignup ? 'Create Account' : 'Sign In'}
+                </button>
+              </form>
+
+              {!isSignup && (
+                <button
+                  type="button"
+                  className="auth-link"
+                  onClick={() => { setResetErr(''); setResetMsg(''); setOtpSent(false); setResendTimer(0); setLocalError(''); setLocalSuccess(''); setAuthMode('reset') }}
+                >
+                  Forgot password?
+                </button>
+              )}
+            </>
+          )}
+
+          <div className="auth-divider"><span>OR</span></div>
+          <button type="button" className="button secondary auth-guest" onClick={onGuest}>
+            Continue as Guest
+          </button>
+
+          <div style={{ display: 'flex', justifyContent: 'center', gap: '14px', marginTop: '14px', fontSize: '0.78rem' }}>
+            <button type="button" onClick={() => onOpenLegal('terms')} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', textDecoration: 'underline' }}>
+              Terms
+            </button>
+            <button type="button" onClick={() => onOpenLegal('privacy')} style={{ background: 'none', border: 'none', color: '#94a3b8', cursor: 'pointer', textDecoration: 'underline' }}>
+              Privacy Policy
+            </button>
+            <button type="button" onClick={() => onOpenLegal('security')} style={{ background: 'none', border: 'none', color: '#38bdf8', cursor: 'pointer', textDecoration: 'underline' }}>
+              Security
+            </button>
+          </div>
         </div>
-
-        <button
-          type="button"
-          className="button secondary auth-guest"
-          onClick={onGuest}
-        >
-          Continue as Guest
-        </button>
-
-        <p className="auth-footer">
-          ThreatLens · Phishing Detection & Explainable Threat Analyzer
-        </p>
-
       </div>
     </div>
   )
 }
-
-
-
-
-
-
-function AccountAccess({ user, setShowAuth, handleLogout }) {
-  return (
-    <div className="account-access">
-      {user ? (
-        <>
-          <div className="account-user">
-            <div className="account-avatar">
-              {user.username?.charAt(0).toUpperCase()}
-            </div>
-            <div>
-              <strong>{user.username}</strong>
-              <span>{user.email || 'ThreatLens User'}</span>
-            </div>
-          </div>
-
-          <button
-            className="account-button logout-button"
-            onClick={handleLogout}
-          >
-            Logout
-          </button>
-        </>
-      ) : (
-        <>
-          <div className="account-user">
-            <div className="account-avatar">G</div>
-            <div>
-              <strong>Guest Workspace</strong>
-              <span>You're using guest access</span>
-            </div>
-          </div>
-
-          <button
-            className="account-button"
-            onClick={() => setShowAuth(true)}
-          >
-            Sign In / Create Account
-          </button>
-        </>
-      )}
-    </div>
-  )
-}
-
-
-
-
-
-
 
 export default App
