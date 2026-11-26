@@ -11,5 +11,6 @@ class ScannerConfig(AppConfig):
             try:
                 from django.core.management import call_command
                 call_command("migrate", interactive=False, verbosity=0)
+                call_command("createcachetable", verbosity=0)
             except Exception:
                 pass
