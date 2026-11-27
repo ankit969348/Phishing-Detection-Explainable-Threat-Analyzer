@@ -1,3 +1,4 @@
+import os
 import secrets
 from django.conf import settings
 from django.core.cache import cache
@@ -105,17 +106,42 @@ class SendResetOTPView(APIView):
 
         print(f"\n[THREATLENS OTP] Email: {email} | Username: {user.username} | OTP: {otp}\n")
 
-        try:
-            send_mail(
-                subject="ThreatLens Password Reset OTP",
-                message=f"Hello {user.username},\n\nYour ThreatLens password reset OTP is: {otp}\nThis code expires in 10 minutes.",
-                from_email=getattr(settings, "DEFAULT_FROM_EMAIL", "noreply@threatlens.local"),
-                recipient_list=[email],
-                fail_silently=False,
-            )
-            msg = f"6-digit OTP sent to {email}."
-        except Exception:
-            msg = "OTP generated (check backend terminal in demo mode)."
+        brevo_key = os.environ.get("BREVO_API_KEY", "").strip()
+        sender_email = os.environ.get("DEFAULT_FROM_EMAIL", "noreply@threatlens.app").strip()
+        if brevo_key:
+            try:
+                import json, urllib.request
+                payload = json.dumps({
+                    "sender": {"name": "ThreatLens Security", "email": sender_email},
+                    "to": [{"email": email, "name": user.username}],
+                    "subject": "ThreatLens Password Reset OTP",
+                    "textContent": f"Hello {user.username},\n\nYour ThreatLens password reset OTP is: {otp}\nThis code expires in 10 minutes."
+                }).encode("utf-8")
+                req = urllib.request.Request(
+                    "https://api.brevo.com/v3/smtp/email",
+                    data=payload,
+                    headers={"accept": "application/json", "api-key": brevo_key, "content-type": "application/json"},
+                    method="POST"
+                )
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    if 200 <= resp.status < 300:
+                        msg = f"6-digit OTP sent to {email}."
+                    else:
+                        return Response({"error": f"Brevo API error: HTTP {resp.status}"}, status=status.HTTP_502_BAD_GATEWAY)
+            except Exception as mail_err:
+                return Response({"error": f"Email delivery failed: {str(mail_err)}"}, status=status.HTTP_502_BAD_GATEWAY)
+        else:
+            try:
+                send_mail(
+                    subject="ThreatLens Password Reset OTP",
+                    message=f"Hello {user.username},\n\nYour ThreatLens password reset OTP is: {otp}\nThis code expires in 10 minutes.",
+                    from_email=sender_email,
+                    recipient_list=[email],
+                    fail_silently=False,
+                )
+                msg = f"6-digit OTP sent to {email}."
+            except Exception:
+                msg = "OTP generated (check backend terminal in demo mode)."
 
         return Response({"message": msg, "username": user.username}, status=status.HTTP_200_OK)
 
