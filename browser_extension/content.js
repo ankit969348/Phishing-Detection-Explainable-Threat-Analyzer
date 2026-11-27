@@ -1,17 +1,35 @@
-const scanCache = new Map();
+const scanCache = new Map(); // url -> { result, timestamp }
+const CACHE_TTL_MS = 60 * 1000;
 
 function instantLocalCheck(urlStr) {
   try {
     const u = new URL(urlStr);
     const reasons = [];
     let score = 0;
-    if (u.protocol === "http:") { score += 35; reasons.push("Unencrypted HTTP connection (No HTTPS)"); }
-    if ([".xyz", ".top", ".info", ".club", ".online", ".site", ".tk", ".ml"].some(t => u.hostname.endsWith(t))) {
-      score += 35; reasons.push("High-risk / untrusted domain extension");
+    if (u.protocol === "http:") {
+      score += 35;
+      reasons.push("Unencrypted HTTP connection (No HTTPS)");
     }
-    const hits = ["login", "verify", "secure", "update", "bank", "account", "kyc", "wallet", "reward"].filter(k => urlStr.toLowerCase().includes(k));
-    if (hits.length >= 2) { score += 30; reasons.push("Phishing keywords: " + hits.slice(0, 3).join(", ")); }
-    else if (hits.length === 1) { score += 15; reasons.push("Sensitive keyword: " + hits[0]); }
+    if ([".xyz", ".top", ".info", ".club", ".online", ".site", ".tk", ".ml", ".ga", ".cf", ".gq", ".work", ".click"].some(t => u.hostname.endsWith(t))) {
+      score += 35;
+      reasons.push("High-risk / untrusted domain extension");
+    }
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(u.hostname)) {
+      score += 45;
+      reasons.push("Direct IP address used instead of domain name");
+    }
+    if (urlStr.includes("@")) {
+      score += 40;
+      reasons.push("Deceptive '@' symbol redirect trick in URL");
+    }
+    const hits = ["login", "verify", "secure", "update", "bank", "account", "kyc", "wallet", "reward", "signin", "confirm", "suspend"].filter(k => urlStr.toLowerCase().includes(k));
+    if (hits.length >= 2) {
+      score += 30;
+      reasons.push("Phishing keywords: " + hits.slice(0, 3).join(", "));
+    } else if (hits.length === 1) {
+      score += 15;
+      reasons.push("Sensitive keyword: " + hits[0]);
+    }
     const label = score >= 70 ? "phishing" : score >= 40 ? "suspicious" : "legitimate";
     return { score: Math.min(score, 99), label, reasons };
   } catch {
@@ -19,22 +37,39 @@ function instantLocalCheck(urlStr) {
   }
 }
 
+function getCachedResult(urlStr) {
+  const entry = scanCache.get(urlStr);
+  if (!entry) return null;
+  if (Date.now() - entry.timestamp > CACHE_TTL_MS) {
+    scanCache.delete(urlStr);
+    return null;
+  }
+  return entry.result;
+}
+
 function scanUrlViaBackground(urlStr) {
   if (!urlStr || !urlStr.startsWith("http")) return Promise.resolve(null);
-  if (scanCache.has(urlStr)) return Promise.resolve(scanCache.get(urlStr));
+  const cached = getCachedResult(urlStr);
+  if (cached) return Promise.resolve(cached);
+
   return new Promise((resolve) => {
     try {
       chrome.runtime.sendMessage({ type: "THREATLENS_SCAN_URL", url: urlStr }, (res) => {
-        if (chrome.runtime.lastError || !res) { resolve(null); return; }
-        scanCache.set(urlStr, res);
+        if (chrome.runtime.lastError || !res || typeof res.score !== "number") {
+          resolve(null);
+          return;
+        }
+        scanCache.set(urlStr, { result: res, timestamp: Date.now() });
         resolve(res);
       });
-    } catch { resolve(null); }
+    } catch {
+      resolve(null);
+    }
   });
 }
 
 function isRisky(res) {
-  return res && (res.label === "phishing" || res.label === "suspicious" || res.score >= 40);
+  return Boolean(res && (res.label === "phishing" || res.label === "suspicious" || res.score >= 40));
 }
 
 (async function checkOpenedPage() {
@@ -46,85 +81,166 @@ function isRisky(res) {
   if (isRisky(res)) showWarningOverlay(currentUrl, res, true);
 })();
 
-let hoverCard = null;
 let activeUrl = null;
+let activeTargetEl = null;
 
-function renderHoverCard(x, y, result) {
-  if (!hoverCard || !document.documentElement.contains(hoverCard)) {
-    hoverCard = document.createElement("div");
-    hoverCard.style.cssText = "position:fixed;z-index:2147483647;pointer-events:none;max-width:300px;background:#0f172a;color:#f8fafc;padding:10px 12px;border-radius:10px;font-family:system-ui,sans-serif;box-shadow:0 12px 28px rgba(0,0,0,0.8);";
-    document.documentElement.appendChild(hoverCard);
-  }
+function removeHoverCard() {
+  const existing = document.getElementById("threatlens-hover-tooltip");
+  if (existing) existing.remove();
+}
+
+function renderHoverCard(x, y, result, urlStr) {
+  removeHoverCard();
+
+  const card = document.createElement("div");
+  card.id = "threatlens-hover-tooltip";
   const isHigh = result.label === "phishing" || result.score >= 70;
   const accent = isHigh ? "#ef4444" : "#f59e0b";
-  const reasonsHtml = result.reasons.length
+
+  const safeX = Math.max(12, Math.min(x + 14, window.innerWidth - 330));
+  const safeY = y > 140 ? y - 115 : Math.min(y + 20, window.innerHeight - 140);
+
+  card.style.cssText = `
+    position: fixed !important;
+    left: ${safeX}px !important;
+    top: ${safeY}px !important;
+    z-index: 2147483647 !important;
+    pointer-events: none !important;
+    width: 310px !important;
+    background: #0f172a !important;
+    color: #f8fafc !important;
+    border: 2px solid ${accent} !important;
+    padding: 10px 12px !important;
+    border-radius: 10px !important;
+    font-family: system-ui, -apple-system, sans-serif !important;
+    box-shadow: 0 14px 32px rgba(0, 0, 0, 0.85) !important;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+  `;
+
+  const reasonsHtml = (result.reasons && result.reasons.length)
     ? `<ul style="margin:6px 0 0;padding-left:15px;font-size:11px;color:#cbd5e1;line-height:1.4;">${result.reasons.map(r => `<li>${r}</li>`).join("")}</ul>`
     : `<div style="margin-top:4px;font-size:11px;color:#cbd5e1;">Suspicious URL indicators detected</div>`;
 
-  hoverCard.style.border = `2px solid ${accent}`;
-  hoverCard.style.left = Math.min(x + 14, window.innerWidth - 320) + "px";
-  hoverCard.style.top = Math.max(10, Math.min(y - 85, window.innerHeight - 130)) + "px";
-  hoverCard.style.display = "block";
-  hoverCard.innerHTML = `
-    <div style="font-size:11px;font-weight:800;color:${accent};">⚠️ THREATLENS ${result.label.toUpperCase()} · ${result.score}/100</div>
+  card.innerHTML = `
+    <div style="font-size:11px;font-weight:800;color:${accent};letter-spacing:0.3px;">
+      ⚠ THREATLENS ${result.label.toUpperCase()} · RISK ${result.score}/100
+    </div>
+    <div style="font-size:10px;color:#94a3b8;margin-top:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+      ${urlStr}
+    </div>
     ${reasonsHtml}
   `;
+
+  (document.body || document.documentElement).appendChild(card);
 }
 
-function findAnchor(target) {
+function extractUrlFromElement(target) {
   if (!target) return null;
   const el = target.nodeType === 3 ? target.parentElement : target;
-  return el && el.closest ? el.closest("a[href]") : null;
+  if (!el) return null;
+
+  // 1. Standard <a> link
+  const anchor = el.closest ? el.closest("a[href]") : null;
+  if (anchor && anchor.href && anchor.href.startsWith("http")) {
+    return { url: anchor.href, element: anchor };
+  }
+
+  // 2. Plain-text URL inside WhatsApp / Webmail spans when link is not clickable yet
+  const text = (el.innerText || el.textContent || "").trim();
+  if (text.length > 8 && text.length < 300) {
+    const match = text.match(/https?:\/\/[^\s<>"')]+/i);
+    if (match) {
+      return { url: match[0], element: el };
+    }
+  }
+  return null;
 }
 
-document.addEventListener("pointermove", (e) => {
-  const anchor = findAnchor(e.target);
-  if (!anchor || !anchor.href || !anchor.href.startsWith("http")) {
-    activeUrl = null;
-    if (hoverCard) hoverCard.style.display = "none";
+function handleHoverTrigger(e) {
+  const found = extractUrlFromElement(e.target);
+  if (!found) {
+    if (activeUrl !== null) {
+      activeUrl = null;
+      activeTargetEl = null;
+      removeHoverCard();
+    }
     return;
   }
-  const url = anchor.href;
+
+  const { url, element } = found;
   try {
     if (new URL(url).hostname === window.location.hostname) {
       activeUrl = null;
-      if (hoverCard) hoverCard.style.display = "none";
+      activeTargetEl = null;
+      removeHoverCard();
       return;
     }
-  } catch { return; }
-
-  anchor.removeAttribute("title");
-  const isNewHover = activeUrl !== url;
-  activeUrl = url;
-
-  const current = scanCache.get(url) || instantLocalCheck(url);
-  if (isRisky(current)) {
-    renderHoverCard(e.clientX, e.clientY, current);
-  } else if (hoverCard) {
-    hoverCard.style.display = "none";
+  } catch {
+    return;
   }
 
-  if (isNewHover && !scanCache.has(url)) {
+  if (element.removeAttribute) element.removeAttribute("title");
+
+  const isFreshEntry = activeUrl !== url || activeTargetEl !== element;
+  activeUrl = url;
+  activeTargetEl = element;
+
+  const cached = getCachedResult(url);
+  const instant = instantLocalCheck(url);
+  const bestKnown = (cached && cached.score >= instant.score) ? cached : instant;
+
+  if (isRisky(bestKnown)) {
+    renderHoverCard(e.clientX, e.clientY, bestKnown, url);
+  } else {
+    removeHoverCard();
+  }
+
+  if (isFreshEntry && !cached) {
     scanUrlViaBackground(url).then((live) => {
-      if (activeUrl === url && isRisky(live)) {
-        renderHoverCard(e.clientX, e.clientY, live);
+      if (activeUrl === url && live) {
+        const merged = live.score >= instant.score ? live : instant;
+        if (isRisky(merged)) {
+          renderHoverCard(e.clientX, e.clientY, merged, url);
+        }
       }
     });
+  }
+}
+
+document.addEventListener("mouseover", handleHoverTrigger, true);
+document.addEventListener("pointermove", handleHoverTrigger, true);
+
+document.addEventListener("mouseout", (e) => {
+  if (!activeTargetEl) return;
+  const related = e.relatedTarget;
+  if (!related || !activeTargetEl.contains(related)) {
+    activeUrl = null;
+    activeTargetEl = null;
+    removeHoverCard();
   }
 }, true);
 
 document.addEventListener("click", (e) => {
-  const anchor = findAnchor(e.target);
-  if (!anchor || !anchor.href || !anchor.href.startsWith("http")) return;
+  const found = extractUrlFromElement(e.target);
+  if (!found) return;
   if (e.ctrlKey || e.metaKey || e.shiftKey) return;
-  const url = anchor.href;
-  try { if (new URL(url).hostname === window.location.hostname) return; } catch { return; }
+  const { url } = found;
+  try {
+    if (new URL(url).hostname === window.location.hostname) return;
+  } catch {
+    return;
+  }
 
-  const check = scanCache.get(url) || instantLocalCheck(url);
+  const cached = getCachedResult(url);
+  const instant = instantLocalCheck(url);
+  const check = (cached && cached.score >= instant.score) ? cached : instant;
+
   if (isRisky(check)) {
     e.preventDefault();
     e.stopImmediatePropagation();
-    if (hoverCard) hoverCard.style.display = "none";
+    removeHoverCard();
     showWarningOverlay(url, check, false);
   }
 }, true);
@@ -136,7 +252,7 @@ function showWarningOverlay(targetUrl, result, isFullPage) {
   const isHigh = result.label === "phishing" || result.score >= 70;
   const bg = isHigh ? "rgba(69, 10, 10, 0.97)" : "rgba(69, 26, 3, 0.97)";
   const accent = isHigh ? "#ef4444" : "#f59e0b";
-  const reasonsList = result.reasons.length
+  const reasonsList = (result.reasons && result.reasons.length)
     ? result.reasons.map(r => `<li>${r}</li>`).join("")
     : "<li>Suspicious URL pattern and phishing indicators detected by ThreatLens AI</li>";
 
@@ -150,7 +266,7 @@ function showWarningOverlay(targetUrl, result, isFullPage) {
   overlay.innerHTML = `
     <div style="max-width:540px;width:100%;background:#0f172a;border:2px solid ${accent};border-radius:16px;padding:28px;box-shadow:0 25px 60px rgba(0,0,0,0.75);">
       <div style="display:inline-block;background:${accent};color:#000;font-weight:800;font-size:12px;padding:4px 10px;border-radius:6px;margin-bottom:12px;">
-        ⚠️ DECEPTIVE / ${result.label.toUpperCase()} SITE AHEAD · RISK ${result.score}/100
+        ⚠ DECEPTIVE / ${result.label.toUpperCase()} SITE AHEAD · RISK ${result.score}/100
       </div>
       <h2 style="margin:0 0 10px;font-size:22px;color:#fff;">ThreatLens Stopped This Connection</h2>
       <p style="margin:0 0 14px;font-size:13px;color:#cbd5e1;line-height:1.5;">
