@@ -2,6 +2,7 @@ import secrets
 from django.conf import settings
 from django.core.cache import cache
 from django.core.mail import send_mail
+from django.db import connection
 from django.contrib.auth import authenticate, get_user_model
 from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -13,6 +14,10 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.authtoken.models import Token
 
 User = get_user_model()
+
+def ensure_otp_cache_table():
+    with connection.cursor() as c:
+        c.execute("CREATE TABLE IF NOT EXISTS threatlens_otp_cache (cache_key varchar(255) PRIMARY KEY, value text NOT NULL, expires timestamptz NOT NULL);")
 
 
 class SignupView(APIView):
@@ -95,6 +100,7 @@ class SendResetOTPView(APIView):
             return Response({"error": "No account found with this email."}, status=status.HTTP_404_NOT_FOUND)
 
         otp = f"{secrets.randbelow(900000) + 100000}"
+        ensure_otp_cache_table()
         cache.set(f"threatlens_otp_{email}", otp, timeout=600)
 
         print(f"\n[THREATLENS OTP] Email: {email} | Username: {user.username} | OTP: {otp}\n")
@@ -125,6 +131,7 @@ class ResetPasswordView(APIView):
         if not email or not otp or not new_password:
             return Response({"error": "Email, OTP, and new password are required."}, status=status.HTTP_400_BAD_REQUEST)
 
+        ensure_otp_cache_table()
         saved_otp = cache.get(f"threatlens_otp_{email}")
         if not saved_otp or saved_otp != otp:
             return Response({"error": "Invalid or expired OTP."}, status=status.HTTP_400_BAD_REQUEST)
