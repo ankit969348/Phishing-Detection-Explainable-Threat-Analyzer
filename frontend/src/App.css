@@ -1009,3 +1009,121 @@ p { line-height: 1.6; }
     display: none !important;
   }
 }
+
+
+/* ===== Enhanced Mobile Responsive Polish ===== */
+@media (max-width: 768px) {
+  html, body {
+    overflow-x: hidden;
+    max-width: 100vw;
+  }
+  .app-shell {
+    display: block;
+    width: 100%;
+    overflow-x: hidden;
+  }
+  .main-area {
+    margin-left: 0 !important;
+    width: 100% !important;
+    padding-bottom: 84px !important;
+  }
+  .topbar {
+    padding: 12px 14px !important;
+    gap: 8px;
+  }
+  .breadcrumb {
+    font-size: 0.85rem !important;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .top-status {
+    display: none !important;
+  }
+  .page-content {
+    padding: 14px !important;
+  }
+  .welcome-row {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 12px !important;
+  }
+  .welcome-row h1 {
+    font-size: 1.45rem !important;
+  }
+  .welcome-row .button {
+    width: 100%;
+    justify-content: center;
+  }
+  .stats-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px !important;
+  }
+  .stat-card {
+    padding: 14px !important;
+  }
+  .stat-value {
+    font-size: 1.35rem !important;
+  }
+  .overview-grid,
+  .finding-grid,
+  .about-grid {
+    grid-template-columns: 1fr !important;
+    gap: 14px !important;
+  }
+  .panel,
+  .finding-card,
+  .scanner-panel {
+    padding: 16px !important;
+    border-radius: 14px !important;
+  }
+  .scanner-tabs {
+    display: grid !important;
+    grid-template-columns: repeat(3, 1fr) !important;
+    gap: 6px !important;
+  }
+  .scanner-tabs button {
+    padding: 9px 6px !important;
+    font-size: 0.78rem !important;
+    justify-content: center;
+  }
+  .scan-form input,
+  .scan-form textarea,
+  .auth-form input {
+    font-size: 16px !important; /* Prevents iOS/Android auto-zoom */
+    padding: 11px 12px !important;
+  }
+  .form-footer {
+    flex-direction: column !important;
+    align-items: stretch !important;
+    gap: 10px !important;
+  }
+  .form-footer .button {
+    width: 100%;
+    justify-content: center;
+  }
+  .report-row {
+    flex-wrap: wrap !important;
+    gap: 10px !important;
+  }
+  .report-row .button {
+    width: 100%;
+    justify-content: center;
+  }
+  .auth-split-layout {
+    grid-template-columns: 1fr !important;
+    padding: 16px !important;
+    min-height: 100vh;
+  }
+  .auth-showcase-panel {
+    display: none !important;
+  }
+  .auth-card {
+    padding: 22px 18px !important;
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  .mobile-bottom-nav {
+    display: flex !important;
+  }
+}

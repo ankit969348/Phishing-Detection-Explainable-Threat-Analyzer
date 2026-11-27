@@ -126,11 +126,34 @@ function App() {
     localStorage.setItem('tl-dismissed-notifs', JSON.stringify(dismissedNotifs))
   }, [dismissedNotifs])
 
+  // Persistent Session Helpers (24-Hour Standard Session)
+  const SESSION_TTL_MS = 24 * 60 * 60 * 1000
+  const getValidStoredSession = () => {
+    try {
+      const savedToken = localStorage.getItem('threatlens-token') || ''
+      const expiry = Number(localStorage.getItem('threatlens-session-expiry') || '0')
+      const savedUser = JSON.parse(localStorage.getItem('threatlens-user') || 'null')
+      if (!savedToken) return { token: '', user: null }
+      if (expiry && Date.now() > expiry) {
+        localStorage.removeItem('threatlens-token')
+        localStorage.removeItem('threatlens-user')
+        localStorage.removeItem('threatlens-session-expiry')
+        return { token: '', user: null }
+      }
+      if (!expiry) {
+        localStorage.setItem('threatlens-session-expiry', String(Date.now() + SESSION_TTL_MS))
+      }
+      return { token: savedToken, user: savedUser }
+    } catch {
+      return { token: '', user: null }
+    }
+  }
+
   // Authentication states
-  const [token, setToken] = useState(() => localStorage.getItem('threatlens-token') || '')
-  const [user, setUser] = useState(null)
+  const [token, setToken] = useState(() => getValidStoredSession().token)
+  const [user, setUser] = useState(() => getValidStoredSession().user)
   const [authMode, setAuthMode] = useState('login')
-  const [showAuth, setShowAuth] = useState(true)
+  const [showAuth, setShowAuth] = useState(() => !getValidStoredSession().token)
   const [authLoading, setAuthLoading] = useState(false)
   const [authError, setAuthError] = useState('')
   const [authSuccess, setAuthSuccess] = useState('')
@@ -155,19 +178,40 @@ function App() {
       setUser(null)
       return
     }
+    const expiry = Number(localStorage.getItem('threatlens-session-expiry') || '0')
+    if (expiry && Date.now() > expiry) {
+      localStorage.removeItem('threatlens-token')
+      localStorage.removeItem('threatlens-user')
+      localStorage.removeItem('threatlens-session-expiry')
+      setToken('')
+      setUser(null)
+      setShowAuth(true)
+      return
+    }
     const verifySession = async () => {
       try {
         const response = await fetch(`${API_BASE_URL}/auth/me/`, {
           headers: { Authorization: `Token ${token}` }
         })
-        if (!response.ok) throw new Error('Session expired')
-        const data = await response.json()
-        setUser(data)
-        fetchDbHistory(token)
+        if (response.status === 401 || response.status === 403) {
+          localStorage.removeItem('threatlens-token')
+          localStorage.removeItem('threatlens-user')
+          localStorage.removeItem('threatlens-session-expiry')
+          setToken('')
+          setUser(null)
+          setShowAuth(true)
+          return
+        }
+        if (response.ok) {
+          const data = await response.json()
+          setUser(data)
+          localStorage.setItem('threatlens-user', JSON.stringify(data))
+          setShowAuth(false)
+          fetchDbHistory(token)
+        }
       } catch {
-        localStorage.removeItem('threatlens-token')
-        setToken('')
-        setUser(null)
+        // Keep cached session active if backend is waking up from cold start
+        fetchDbHistory(token)
       }
     }
     verifySession()
@@ -249,6 +293,8 @@ function App() {
 
   const saveSession = (data) => {
     localStorage.setItem('threatlens-token', data.token)
+    localStorage.setItem('threatlens-user', JSON.stringify(data.user))
+    localStorage.setItem('threatlens-session-expiry', String(Date.now() + SESSION_TTL_MS))
     setToken(data.token)
     setUser(data.user)
     setShowAuth(false)
@@ -307,8 +353,11 @@ function App() {
       console.error('Logout request failed:', error)
     } finally {
       localStorage.removeItem('threatlens-token')
+      localStorage.removeItem('threatlens-user')
+      localStorage.removeItem('threatlens-session-expiry')
       setToken('')
       setUser(null)
+      setShowAuth(true)
       setHistory([])
       setResult(null)
       setSelectedReport(null)
